@@ -120,7 +120,26 @@ const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('polesurvey',2);
 const st=(n,m)=>db.transaction(n,m).objectStore(n);
 const getAll=n=>new Promise(r=>{const q=st(n,'readonly').getAll();q.onsuccess=()=>r(q.result)});
 const getOne=(n,id)=>new Promise(r=>{const q=st(n,'readonly').get(id);q.onsuccess=()=>r(q.result)});
-const putOne=(n,o,keep)=>new Promise(r=>{if(!keep)o.updated=Date.now();const q=st(n,'readwrite').put(o);q.onsuccess=()=>r()});
+const stripP=p=>({...p,photos:p.photos.map(ph=>ph.buf?{id:ph.id,buf:ph.buf,type:ph.type||'image/jpeg'}:{...ph})});
+const putOne=(n,o,keep)=>new Promise(r=>{if(!keep)o.updated=Date.now();const q=st(n,'readwrite').put(n==='poles'?stripP(o):o);q.onsuccess=()=>r()});
+async function rescueViaCanvas(blob){ // if bytes can't be read but the picture still displays, re-draw it
+ const url=URL.createObjectURL(blob);
+ try{const img=new Image();img.src=url;await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);
+  const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.9));if(!b)throw new Error('rescue failed');return new Uint8Array(await b.arrayBuffer())}
+ finally{URL.revokeObjectURL(url)}
+}
+async function hydrate(p){ // rebuild in-memory Blobs; convert old Blob-format photos to the safer ArrayBuffer format
+ let dirty=false;
+ for(const ph of p.photos){
+  if(ph.buf&&!ph.blob){ph.blob=new Blob([ph.buf],{type:ph.type||'image/jpeg'});continue}
+  if(ph.blob&&!ph.buf){let bytes;
+   try{bytes=await readBytes(ph.blob)}catch(e){try{bytes=await rescueViaCanvas(ph.blob)}catch(e2){ph.bad=true;continue}}
+   ph.buf=bytes.buffer;ph.type='image/jpeg';ph.blob=new Blob([ph.buf],{type:'image/jpeg'});dirty=true}
+ }
+ if(dirty)await putOne('poles',p,true);
+ return p;
+}
+const getPole=async id=>{const p=await getOne('poles',id);return p?hydrate(p):p};
 const delOne=(n,id)=>new Promise(r=>{const q=st(n,'readwrite').delete(id);q.onsuccess=()=>r()});
 async function migrate(){ // poles saved before projects existed go into one project
  const orphans=(await getAll('poles')).filter(p=>!p.projectId);if(!orphans.length)return;
@@ -258,7 +277,7 @@ async function showProject(){
   `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button>'}</div>`+
   (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:''}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
  main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{lTab=t.dataset.t;lSelMode=false;lSet.clear();showProject()});
- main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(lSelMode){lSet.has(e.dataset.id)?lSet.delete(e.dataset.id):lSet.add(e.dataset.id);showProject()}else openPole(await getOne('poles',e.dataset.id))});
+ main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(lSelMode){lSet.has(e.dataset.id)?lSet.delete(e.dataset.id):lSet.add(e.dataset.id);showProject()}else openPole(await getPole(e.dataset.id))});
  if($('#selb'))$('#selb').onclick=()=>{lSelMode=!lSelMode;lSet.clear();showProject()};
  if($('#alls'))$('#alls').onclick=()=>{lSet=lSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProject()};
  if($('#ren'))$('#ren').onclick=async()=>{const n=await askText('Rename project','Project name',curProj.name);if(!n)return;curProj.name=n;await putOne('projects',curProj);showProject()};
@@ -295,7 +314,7 @@ function renderPole(){
   <div><label>Date</label><input type="date" id="f_dt" value="${cur.date}"></div></div>
  </div>
  <div class="card"><h2>Photos</h2>
-  <div class="photos" id="photos">${cur.photos.map((ph,i)=>`<div class="ph" data-i="${i}"><img src="${purl(ph)}"><span class="n">${i+1}</span>${markCount(ph)?`<span class="n" style="left:auto;right:4px;background:var(--acc);color:#000">${markCount(ph)}</span>`:''}</div>`).join('')}</div>
+  <div class="photos" id="photos">${cur.photos.map((ph,i)=>`<div class="ph" data-i="${i}"><img src="${purl(ph)}"><span class="n">${ph.bad?'⚠ ':''}${i+1}</span>${markCount(ph)?`<span class="n" style="left:auto;right:4px;background:var(--acc);color:#000">${markCount(ph)}</span>`:''}</div>`).join('')}</div>
   <div class="row" style="margin-top:10px"><label class="btn pri" style="text-align:center;margin:0">📷 Take photo<input id="cam" type="file" accept="image/*" capture="environment" hidden></label>
   <label class="btn" style="text-align:center;margin:0">🖼 Add from gallery<input id="gal" type="file" accept="image/*" multiple hidden></label></div>
   <div style="color:var(--mut);font-size:13px;margin-top:8px">Tap a photo to zoom in and point arrows at each attachment.</div>
@@ -317,7 +336,7 @@ function renderPole(){
  bind('#f_dt',e=>{cur.date=e.target.value;save()});
  bind('#f_nt',e=>{cur.notes=e.target.value;save()});
  $('#gps').onclick=()=>{$('#gps').textContent='Locating…';navigator.geolocation.getCurrentPosition(pos=>{cur.lat=pos.coords.latitude;cur.lng=pos.coords.longitude;save();renderPole()},()=>{$('#gps').textContent='GPS unavailable'},{enableHighAccuracy:true,timeout:15000})};
- const addPhotos=async files=>{for(const f of files){const blob=await compress(f);cur.photos.push({id:uid(),blob})}await save();renderPole()};
+ const addPhotos=async files=>{for(const f of files){const blob=await compress(f),buf=await blob.arrayBuffer();cur.photos.push({id:uid(),blob,buf,type:'image/jpeg'})}await save();renderPole()};
  $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
  document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
  document.querySelectorAll('#quick .chip').forEach(b=>b.onclick=()=>{const a=addAtt(b.dataset.k);drawAtts(a.id)});
@@ -617,16 +636,16 @@ async function makePdf(poles,opts={}){
   if(opts.onProgress){opts.onProgress(k+1,poles.length,p);await tick()}
   pgs.push(await pgFromCanvas(await pgSummary(p)));
   for(let i=0;i<p.photos.length;i++)if(p.attachments.some(a=>a.photoId===p.photos[i].id)){
-   try{pgs.push(await pgFromCanvas(await pgAnnot(p,i)))}catch(e){(opts.skipped||[]).push(`${p.poleId||'(no ID)'} photo ${i+1} (tagged page)`)}}
+   try{pgs.push(await pgFromCanvas(await pgAnnot(p,i)))}catch(e){(opts.skipped||[]).push(`Pole ${p.poleId||'(no ID)'}, photo ${i+1} (tagged page): ${e.message}`)}}
   for(let i=0;i<p.photos.length;i++){
-   try{pgs.push(await pgFromPhoto(p,i))}catch(e){(opts.skipped||[]).push(`${p.poleId||'(no ID)'} photo ${i+1}`)}}
+   try{pgs.push(await pgFromPhoto(p,i))}catch(e){(opts.skipped||[]).push(`Pole ${p.poleId||'(no ID)'}, photo ${i+1}: ${e.message}`)}}
  }
  return buildPdf(pgs);
 }
 
 // ---------- export dialog ----------
 async function exportDialog({base,poles,project}){
- poles=(await Promise.all(poles.map(async p=>(await getOne('poles',p.id))||p)));
+ poles=(await Promise.all(poles.map(async p=>(await getPole(p.id))||p)));
  const skipped=[];
  const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');
  h.textContent=project?'Building project PDF…':'Building PDF…';b.innerHTML='<div class="empty" id="prog" style="padding:10px">Starting…</div>';
@@ -635,12 +654,12 @@ async function exportDialog({base,poles,project}){
  catch(e){h.textContent='Could not build the PDF';b.innerHTML=`<p style="color:var(--mut)">${esc(e.message)}</p><button id="xc">Close</button>`;$('#xc').onclick=()=>m.classList.remove('on');return}
  const files=[new File([pdf],base+'.pdf',{type:'application/pdf'}),new File([csv(poles)],base+'.csv',{type:'text/csv'})];
  const photos=[],seen={};
- poles.forEach(p=>{let nm=safe(p.poleId||'pole');seen[nm]=(seen[nm]||0)+1;if(seen[nm]>1)nm+='_'+seen[nm];p.photos.forEach((ph,i)=>photos.push(new File([ph.blob],`${nm}_photo${i+1}.jpg`,{type:'image/jpeg'})))});
+ poles.forEach(p=>{let nm=safe(p.poleId||'pole');seen[nm]=(seen[nm]||0)+1;if(seen[nm]>1)nm+='_'+seen[nm];p.photos.forEach((ph,i)=>ph.bad||photos.push(new File([ph.blob],`${nm}_photo${i+1}.jpg`,{type:'image/jpeg'})))});
  const kb=f=>f.size>1048576?(f.size/1048576).toFixed(1)+' MB':Math.round(f.size/1024)+' KB';
  const canShare=f=>navigator.canShare&&navigator.canShare({files:f});
  h.textContent='Ready to send';
  b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:10px">${poles.length} pole${poles.length===1?'':'s'}, ${photos.length} photo${photos.length===1?'':'s'} — the PDF has the sketches, tagged photos and every photo at full size.</div>
-  ${skipped.length?`<div style="color:var(--bad);font-size:13px;margin-bottom:10px">⚠ Could not read: ${esc(skipped.join(', '))}. Those photos are not in the PDF — retake them if needed.</div>`:''}
+  ${skipped.length?`<div style="color:var(--bad);font-size:13px;margin-bottom:10px">⚠ Left out of the PDF (could not be read):<br>${skipped.map(esc).join('<br>')}<br>Delete and re-add those photos if you need them.</div>`:''}
   <div>📄 ${esc(files[0].name)} <small>${kb(files[0])}</small></div><div style="margin-top:8px">📊 ${esc(files[1].name)} <small>${kb(files[1])}</small></div>
   ${canShare(files)?'<button class="pri" id="xs">Share PDF + CSV</button>':''}
   <button id="xd" ${canShare(files)?'':'class="pri"'}>Download PDF + CSV</button>
