@@ -493,6 +493,20 @@ function drawArrowC(g,cx,cy,ang,color){
  g.restore();g.fillStyle='#fff';g.strokeStyle='#000';g.lineWidth=2;g.beginPath();g.arc(cx,cy,3.5,0,7);g.fill();g.stroke();
  return {tx:cx-L*Math.cos(r),ty:cy-L*Math.sin(r),c:Math.cos(r),s:Math.sin(r)};
 }
+async function readBytes(blob){
+ try{return new Uint8Array(await blob.arrayBuffer())}catch(e){}
+ return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(new Uint8Array(fr.result));fr.onerror=()=>rej(new Error('photo could not be read'));fr.readAsArrayBuffer(blob)});
+}
+async function decodeJpeg(bytes){ // decode from a fresh in-memory copy (Safari can't decode blobs straight out of IndexedDB)
+ const blob=new Blob([bytes],{type:'image/jpeg'});
+ try{return await createImageBitmap(blob)}catch(e){}
+ const img=new Image();img.src=URL.createObjectURL(blob);
+ try{await img.decode()}catch(e){throw new Error('photo could not be decoded')}
+ return img;
+}
+function jpegSize(b){let i=2;while(i+9<b.length){if(b[i]!==0xFF){i++;continue}const m=b[i+1];if(m===0xFF){i++;continue}
+ if(m>=0xC0&&m<=0xCF&&m!==0xC4&&m!==0xC8&&m!==0xCC)return {h:(b[i+5]<<8)|b[i+6],w:(b[i+7]<<8)|b[i+8]};
+ i+=2+((b[i+2]<<8)|b[i+3])}return null}
 async function pgSummary(p){
  const {c,g}=mkPage();
  g.fillStyle='#111';g.font='bold 56px Arial';g.fillText('Pole '+(p.poleId||'—'),PM,PM);
@@ -526,7 +540,7 @@ async function pgSummary(p){
 async function pgAnnot(p,i){
  const {c,g}=mkPage(),ph=p.photos[i];
  g.fillStyle='#111';g.font='bold 40px Arial';g.fillText(`Pole ${p.poleId||'—'} — Photo ${i+1}: attachments & heights`,PM,PM-10);
- const bmp=await createImageBitmap(ph.blob);
+ const bmp=await decodeJpeg(await readBytes(ph.blob));
  const r=fitDraw(g,bmp,PM,110,PW-2*PM,1000);
  const on=p.attachments.map((a,idx)=>({a,n:idx+1})).filter(o=>o.a.photoId===ph.id);
  for(const o of on){const a=o.a,cx=r.dx+a.x*r.dw,cy=r.dy+a.y*r.dh;
@@ -571,8 +585,9 @@ async function pgFromCanvas(c){
 }
 const pdfStr=t=>String(t).replace(/[^\x20-\x7E]/g,'?').replace(/([\\()])/g,'\\$1');
 async function pgFromPhoto(p,i){
- const bl=p.photos[i].blob,bmp=await createImageBitmap(bl),iw=bmp.width,ih=bmp.height;bmp.close&&bmp.close();
- const bytes=new Uint8Array(await bl.arrayBuffer()),land=iw>ih,W=land?792:612,H=land?612:792,m=28,capH=26,aw=W-2*m,ah=H-2*m-capH;
+ const bytes=await readBytes(p.photos[i].blob);let sz=jpegSize(bytes);
+ if(!sz){const bmp=await decodeJpeg(bytes);sz={w:bmp.width,h:bmp.height};bmp.close&&bmp.close()}
+ const iw=sz.w,ih=sz.h,land=iw>ih,W=land?792:612,H=land?612:792,m=28,capH=26,aw=W-2*m,ah=H-2*m-capH;
  const s=Math.min(aw/iw,ah/ih),dw=iw*s,dh=ih*s,x=(W-dw)/2,y=m+(ah-dh)/2;
  const cap=`Pole ${p.poleId||'-'} - Photo ${i+1} of ${p.photos.length}`;
  return {W,H,bytes,iw,ih,content:`BT /F1 13 Tf ${m} ${H-m-12} Td (${pdfStr(cap)}) Tj ET q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im0 Do Q`};
@@ -601,18 +616,22 @@ async function makePdf(poles,opts={}){
  for(let k=0;k<poles.length;k++){const p=poles[k];
   if(opts.onProgress){opts.onProgress(k+1,poles.length,p);await tick()}
   pgs.push(await pgFromCanvas(await pgSummary(p)));
-  for(let i=0;i<p.photos.length;i++)if(p.attachments.some(a=>a.photoId===p.photos[i].id))pgs.push(await pgFromCanvas(await pgAnnot(p,i)));
-  for(let i=0;i<p.photos.length;i++)pgs.push(await pgFromPhoto(p,i));
+  for(let i=0;i<p.photos.length;i++)if(p.attachments.some(a=>a.photoId===p.photos[i].id)){
+   try{pgs.push(await pgFromCanvas(await pgAnnot(p,i)))}catch(e){(opts.skipped||[]).push(`${p.poleId||'(no ID)'} photo ${i+1} (tagged page)`)}}
+  for(let i=0;i<p.photos.length;i++){
+   try{pgs.push(await pgFromPhoto(p,i))}catch(e){(opts.skipped||[]).push(`${p.poleId||'(no ID)'} photo ${i+1}`)}}
  }
  return buildPdf(pgs);
 }
 
 // ---------- export dialog ----------
 async function exportDialog({base,poles,project}){
+ poles=(await Promise.all(poles.map(async p=>(await getOne('poles',p.id))||p)));
+ const skipped=[];
  const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');
  h.textContent=project?'Building project PDF…':'Building PDF…';b.innerHTML='<div class="empty" id="prog" style="padding:10px">Starting…</div>';
  await tick();
- let pdf;try{pdf=await makePdf(poles,{project,onProgress:(k,n,p)=>{const e=$('#prog');if(e)e.textContent=`Pole ${k} of ${n}: ${p.poleId||'(no ID)'}`}})}
+ let pdf;try{pdf=await makePdf(poles,{project,skipped,onProgress:(k,n,p)=>{const e=$('#prog');if(e)e.textContent=`Pole ${k} of ${n}: ${p.poleId||'(no ID)'}`}})}
  catch(e){h.textContent='Could not build the PDF';b.innerHTML=`<p style="color:var(--mut)">${esc(e.message)}</p><button id="xc">Close</button>`;$('#xc').onclick=()=>m.classList.remove('on');return}
  const files=[new File([pdf],base+'.pdf',{type:'application/pdf'}),new File([csv(poles)],base+'.csv',{type:'text/csv'})];
  const photos=[],seen={};
@@ -621,6 +640,7 @@ async function exportDialog({base,poles,project}){
  const canShare=f=>navigator.canShare&&navigator.canShare({files:f});
  h.textContent='Ready to send';
  b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:10px">${poles.length} pole${poles.length===1?'':'s'}, ${photos.length} photo${photos.length===1?'':'s'} — the PDF has the sketches, tagged photos and every photo at full size.</div>
+  ${skipped.length?`<div style="color:var(--bad);font-size:13px;margin-bottom:10px">⚠ Could not read: ${esc(skipped.join(', '))}. Those photos are not in the PDF — retake them if needed.</div>`:''}
   <div>📄 ${esc(files[0].name)} <small>${kb(files[0])}</small></div><div style="margin-top:8px">📊 ${esc(files[1].name)} <small>${kb(files[1])}</small></div>
   ${canShare(files)?'<button class="pri" id="xs">Share PDF + CSV</button>':''}
   <button id="xd" ${canShare(files)?'':'class="pri"'}>Download PDF + CSV</button>
