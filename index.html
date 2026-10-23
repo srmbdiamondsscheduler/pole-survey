@@ -44,11 +44,6 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 .modal.on{display:flex}
 .modal .bar{display:flex;gap:10px;padding:10px 14px;align-items:center}
 .modal .bar span{flex:1;color:var(--mut);font-size:14px}
-.stage{flex:1;overflow:auto;display:grid;place-items:center;padding:6px}
-.stage .wrap{position:relative;display:inline-block;max-width:100%;max-height:100%}
-.stage img{display:block;max-width:100vw;max-height:70vh;touch-action:manipulation}
-.mk{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;border:2px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#10202e}
-.sheetpick{background:var(--card);border-top:1px solid var(--line);padding:12px 14px max(12px,env(safe-area-inset-bottom))}
 .empty{color:var(--mut);text-align:center;padding:30px 10px}
 
 .attbox{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px}
@@ -60,16 +55,36 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 .dlg{margin:auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(92vw,430px)}
 .dlg h3{margin:0 0 12px}.dlg button{width:100%;margin-top:10px}
 .dlg small{color:var(--mut);display:block;margin-top:4px}
+
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tab{flex:1;background:transparent}.tab.on{background:var(--acc);color:#1b1405;border-color:var(--acc)}
+.chk{width:26px;height:26px;border-radius:7px;border:2px solid var(--mut);display:grid;place-items:center;font-weight:800;color:#1b1405;flex:none}
+.pole-item.sel{border-color:var(--acc)}.pole-item.sel .chk{background:var(--acc);border-color:var(--acc)}
+.bar3{display:flex;gap:10px}
+
+.stage{flex:1;position:relative;overflow:hidden;touch-action:none;background:#000;-webkit-user-select:none;user-select:none}
+#vwrap{position:absolute;left:0;top:0;transform-origin:0 0}
+#vimg{width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none}
+.mk{position:absolute;width:0;height:0}
+.mki{position:absolute;left:0;top:0;transform:scale(var(--inv,1));transform-origin:0 0}
+.sheetpick{position:absolute;left:0;right:0;bottom:0;max-height:50vh;overflow:auto;background:rgba(26,48,69,.97);border-top:1px solid var(--line);padding:10px 12px max(10px,env(safe-area-inset-bottom))}
+.sheetpick .pt{font-size:13px;color:var(--mut);margin-bottom:8px}
+.vchips{display:flex;flex-wrap:wrap;gap:6px}
+.vchips .chip{padding:4px 9px;min-height:34px;font-size:13px}
+.vchips .chip.cur{background:currentColor}.vchips .chip.cur span{color:#10202e}
+.prow{display:flex;gap:8px;margin-top:10px;align-items:center}.prow>*{flex:1}.prow input{min-height:42px;padding:8px 10px;font-weight:700;text-align:right}
+.pcard{display:flex;align-items:center;gap:12px;cursor:pointer}
+.modal#viewer{background:#000}
 </style></head>
 <body>
-<header><button id="back" class="sm" style="display:none">‹ Poles</button><h1 id="title">Pole Survey</h1><button id="unit" class="sm">ft</button></header>
+<header><button id="back" class="sm" style="display:none">‹ Back</button><h1 id="title">Pole Survey</h1><button id="unit" class="sm">ft</button></header>
 <main id="main"></main>
 <div id="bar" class="sticky" style="display:none"></div>
 
 <div class="modal" id="viewer">
- <div class="bar"><button id="vclose">Done</button><span id="vhint">Tap the photo where an attachment is</span><button class="dng sm" id="vdel">Delete photo</button></div>
- <div class="stage"><div class="wrap" id="vwrap"><img id="vimg"></div></div>
- <div class="sheetpick" id="vpick" style="display:none"><div style="color:var(--mut);font-size:13px;margin-bottom:8px">What is this?</div><div class="chips" id="vchips"></div></div>
+ <div class="bar"><button id="vclose">Done</button><span style="flex:1"></span><button class="sm" id="vzo">−</button><button class="sm" id="vzi">+</button><button class="sm" id="vfit">Fit</button><button class="dng sm" id="vdel">🗑</button></div>
+ <div class="stage" id="vstage"><div id="vwrap"><img id="vimg" alt=""></div></div>
+ <div class="sheetpick" id="vpick"></div>
 </div>
 <div class="modal" id="exp"><div class="dlg"><h3 id="exph"></h3><div id="expb"></div></div></div>
 
@@ -92,18 +107,26 @@ const dirStr=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const safe=s=>String(s||'').replace(/[^\w-]+/g,'_').replace(/^_+|_+$/g,'')||'untitled';
+const tick=()=>new Promise(r=>setTimeout(r,0));
 let unit=localStorage.getItem('unit')||'ft';
+const projName={};
 
 // ---------- storage (IndexedDB) ----------
 let db;
-const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('polesurvey',1);
- r.onupgradeneeded=()=>r.result.createObjectStore('poles',{keyPath:'id'});
+const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('polesurvey',2);
+ r.onupgradeneeded=()=>{const d=r.result;['poles','projects'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};
  r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)});
-const tx=(m)=>db.transaction('poles',m).objectStore('poles');
-const pAll=()=>new Promise(r=>{const q=tx('readonly').getAll();q.onsuccess=()=>r(q.result)});
-const pGet=id=>new Promise(r=>{const q=tx('readonly').get(id);q.onsuccess=()=>r(q.result)});
-const pPut=p=>new Promise(r=>{p.updated=Date.now();const q=tx('readwrite').put(p);q.onsuccess=()=>r()});
-const pDel=id=>new Promise(r=>{const q=tx('readwrite').delete(id);q.onsuccess=()=>r()});
+const st=(n,m)=>db.transaction(n,m).objectStore(n);
+const getAll=n=>new Promise(r=>{const q=st(n,'readonly').getAll();q.onsuccess=()=>r(q.result)});
+const getOne=(n,id)=>new Promise(r=>{const q=st(n,'readonly').get(id);q.onsuccess=()=>r(q.result)});
+const putOne=(n,o,keep)=>new Promise(r=>{if(!keep)o.updated=Date.now();const q=st(n,'readwrite').put(o);q.onsuccess=()=>r()});
+const delOne=(n,id)=>new Promise(r=>{const q=st(n,'readwrite').delete(id);q.onsuccess=()=>r()});
+async function migrate(){ // poles saved before projects existed go into one project
+ const orphans=(await getAll('poles')).filter(p=>!p.projectId);if(!orphans.length)return;
+ const pr={id:uid(),name:'Unsorted poles',notes:'',archived:false,created:Date.now(),updated:Date.now()};
+ await putOne('projects',pr,true);for(const p of orphans){p.projectId=pr.id;await putOne('poles',p,true)}
+}
 
 // ---------- heights ----------
 const M_PER_IN=0.0254;
@@ -133,7 +156,6 @@ async function compress(file){
 
 // ---------- diagram (SVG) ----------
 function glyph(k,xe,y,c,bg){
- // xe = left edge of pole at this height. Drawn to the LEFT of the pole.
  switch(k){
  case 'Street light':
   return `<polyline points="${xe},${y} ${xe-12},${y-9} ${xe-32},${y-9}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`+
@@ -178,23 +200,88 @@ function diagram(p,o={}){
  return s+'</svg>';
 }
 
-// ---------- views ----------
-let cur=null;
+// ---------- navigation ----------
+let view='projects',curProj=null,cur=null;
 const main=$('#main'),bar=$('#bar');
 function setHeader(t,back){$('#title').textContent=t;$('#back').style.display=back?'':'none'}
+$('#back').onclick=()=>{if(view==='pole')showProject();else showProjects()};
 
-async function showList(){
- cur=null;setHeader('Pole Survey',false);
- const ps=(await pAll()).sort((a,b)=>b.updated-a.updated);
- main.innerHTML=ps.length?ps.map(p=>`<div class="card pole-item" data-id="${p.id}"><div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):'<div class="empty">No poles yet.<br>Tap “New pole” to start.</div>';
- main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>openPole(await pGet(e.dataset.id)));
- bar.style.display='flex';bar.innerHTML='<button class="pri" id="new">+ New pole</button><button id="expall">Export all (CSV)</button>';
- $('#new').onclick=async()=>{const p={id:uid(),poleId:'',utility:localStorage.getItem('lastUtil')||UTILS[0],lat:null,lng:null,date:new Date().toISOString().slice(0,10),notes:'',poleHeight:null,poleClass:'',photos:[],attachments:[],updated:Date.now()};await pPut(p);openPole(p)};
- $('#expall').onclick=async()=>{const all=await pAll();if(!all.length)return;dl(new File([csv(all)],'pole_survey_all.csv',{type:'text/csv'}))};
+function askText(title,placeholder,val=''){return new Promise(res=>{
+ const m=$('#exp');$('#exph').textContent=title;
+ $('#expb').innerHTML=`<input id="at" value="${esc(val)}" placeholder="${esc(placeholder)}"><button class="pri" id="aok">OK</button><button id="acx">Cancel</button>`;
+ m.classList.add('on');const i=$('#at');setTimeout(()=>i.focus(),60);
+ const done=v=>{m.classList.remove('on');res(v)};
+ $('#aok').onclick=()=>done(i.value.trim());$('#acx').onclick=()=>done(null);i.onkeydown=e=>{if(e.key==='Enter')done(i.value.trim())}})}
+
+// ---------- screen 1: projects ----------
+let pTab='active',pSelMode=false,pSet=new Set();
+async function showProjects(){
+ view='projects';cur=null;curProj=null;setHeader('Pole Survey',false);
+ const [projs,poles]=await Promise.all([getAll('projects'),getAll('poles')]);
+ projs.forEach(p=>projName[p.id]=p.name);
+ projs.sort((a,b)=>b.updated-a.updated);
+ const act=projs.filter(p=>!p.archived),arc=projs.filter(p=>p.archived),ps=pTab==='active'?act:arc;
+ pSet=new Set([...pSet].filter(id=>ps.some(p=>p.id===id)));
+ const cnt=p=>{const mine=poles.filter(x=>x.projectId===p.id&&!x.archived);return {n:mine.length,ph:mine.reduce((t,x)=>t+x.photos.length,0)}};
+ main.innerHTML=`<div class="tabs"><button class="tab ${pTab==='active'?'on':''}" data-t="active">Projects (${act.length})</button><button class="tab ${pTab==='archived'?'on':''}" data-t="archived">Archived (${arc.length})</button></div>`+
+  (ps.length?`<div class="row" style="margin-bottom:12px"><button id="selb" class="sm">${pSelMode?'Cancel':'Select'}</button>${pSelMode?'<button id="alls" class="sm">Select all</button>':''}</div>`:'')+
+  (ps.length?ps.map(p=>{const c=cnt(p);return `<div class="card pole-item${pSet.has(p.id)?' sel':''}" data-id="${p.id}">${pSelMode?`<div class="chk">${pSet.has(p.id)?'✓':''}</div>`:''}<div class="t"><b>${esc(p.name)}</b><br><small>${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${c.n} poles</span><span class="badge">${c.ph} 📷</span></div>`}).join(''):
+   `<div class="empty">${pTab==='active'?'No projects yet.<br>Tap “New project” — a project holds all the poles for one job, and exports as a single PDF + CSV.':'Nothing archived.'}</div>`);
+ main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{pTab=t.dataset.t;pSelMode=false;pSet.clear();showProjects()});
+ main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(pSelMode){pSet.has(e.dataset.id)?pSet.delete(e.dataset.id):pSet.add(e.dataset.id);showProjects()}else{curProj=await getOne('projects',e.dataset.id);lTab='active';lSelMode=false;lSet.clear();showProject()}});
+ if($('#selb'))$('#selb').onclick=()=>{pSelMode=!pSelMode;pSet.clear();showProjects()};
+ if($('#alls'))$('#alls').onclick=()=>{pSet=pSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProjects()};
+ bar.style.display='flex';
+ if(pSelMode){const n=pSet.size,dis=n?'':'disabled',chosen=()=>ps.filter(p=>pSet.has(p.id));
+  bar.innerHTML=`<button id="bArc" ${dis}>${pTab==='active'?'Archive':'Restore'} (${n})</button><button id="bCsv" ${dis}>CSV (${n})</button><button class="dng" id="bDel" ${dis}>Delete (${n})</button>`;
+  $('#bArc').onclick=async()=>{for(const p of chosen()){p.archived=pTab==='active';await putOne('projects',p)}pSelMode=false;pSet.clear();showProjects()};
+  $('#bCsv').onclick=()=>{const ids=new Set(chosen().map(p=>p.id));dl(new File([csv(poles.filter(x=>ids.has(x.projectId)&&!x.archived))],'pole_survey_projects.csv',{type:'text/csv'}))};
+  $('#bDel').onclick=async()=>{const c=chosen();const np=poles.filter(x=>c.some(p=>p.id===x.projectId)).length;
+   if(!confirm(`Permanently delete ${c.length} project${c.length>1?'s':''}, including ${np} pole${np===1?'':'s'} and all their photos?\n\nThis cannot be undone. Export first if you still need the data.`))return;
+   for(const x of poles)if(c.some(p=>p.id===x.projectId))await delOne('poles',x.id);for(const p of c)await delOne('projects',p.id);pSelMode=false;pSet.clear();showProjects()};
+ }else{
+  bar.innerHTML='<button class="pri" id="newp">+ New project</button>';
+  $('#newp').onclick=async()=>{const name=await askText('New project','e.g. Steinbach fibre – Phase 2');if(!name)return;
+   const pr={id:uid(),name,notes:'',archived:false,created:Date.now(),updated:Date.now()};await putOne('projects',pr,true);curProj=pr;pTab='active';lTab='active';lSelMode=false;lSet.clear();showProject()};
+ }
 }
 
-function openPole(p){cur=p;renderPole()}
-const save=()=>pPut(cur);
+// ---------- screen 2: one project's poles ----------
+let lTab='active',lSelMode=false,lSet=new Set();
+async function showProject(){
+ view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;
+ const all=(await getAll('poles')).filter(p=>p.projectId===curProj.id).sort((a,b)=>b.updated-a.updated);
+ const act=all.filter(p=>!p.archived),arc=all.filter(p=>p.archived),ps=lTab==='active'?act:arc;
+ lSet=new Set([...lSet].filter(id=>ps.some(p=>p.id===id)));
+ const emptyMsg=lTab==='active'?'No poles in this project yet.<br>Tap “New pole” to start.':'Nothing archived.<br>Archive finished poles to keep this list short.';
+ main.innerHTML=`<div class="tabs"><button class="tab ${lTab==='active'?'on':''}" data-t="active">Poles (${act.length})</button><button class="tab ${lTab==='archived'?'on':''}" data-t="archived">Archived (${arc.length})</button></div>`+
+  `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button>'}</div>`+
+  (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:''}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
+ main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{lTab=t.dataset.t;lSelMode=false;lSet.clear();showProject()});
+ main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(lSelMode){lSet.has(e.dataset.id)?lSet.delete(e.dataset.id):lSet.add(e.dataset.id);showProject()}else openPole(await getOne('poles',e.dataset.id))});
+ if($('#selb'))$('#selb').onclick=()=>{lSelMode=!lSelMode;lSet.clear();showProject()};
+ if($('#alls'))$('#alls').onclick=()=>{lSet=lSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProject()};
+ if($('#ren'))$('#ren').onclick=async()=>{const n=await askText('Rename project','Project name',curProj.name);if(!n)return;curProj.name=n;await putOne('projects',curProj);showProject()};
+ bar.style.display='flex';
+ if(lSelMode){const n=lSet.size,dis=n?'':'disabled',chosen=()=>ps.filter(p=>lSet.has(p.id));
+  bar.innerHTML=`<button id="bArc" ${dis}>${lTab==='active'?'Archive':'Restore'} (${n})</button><button id="bCsv" ${dis}>CSV (${n})</button><button class="dng" id="bDel" ${dis}>Delete (${n})</button>`;
+  $('#bArc').onclick=async()=>{for(const p of chosen()){p.archived=lTab==='active';await putOne('poles',p)}lSelMode=false;lSet.clear();showProject()};
+  $('#bCsv').onclick=()=>dl(new File([csv(chosen())],safe(curProj.name)+'_selected.csv',{type:'text/csv'}));
+  $('#bDel').onclick=async()=>{const c=chosen();if(!confirm(`Permanently delete ${c.length} pole${c.length>1?'s':''} and all their photos?\n\nThis cannot be undone. Export first if you still need the data.`))return;for(const p of c)await delOne('poles',p.id);lSelMode=false;lSet.clear();showProject()};
+ }else{
+  bar.innerHTML=`<button class="pri" id="new">+ New pole</button><button id="expj">Export project (${act.length})</button>`;
+  $('#new').onclick=async()=>{const p={id:uid(),projectId:curProj.id,poleId:'',utility:localStorage.getItem('lastUtil')||UTILS[0],lat:null,lng:null,date:new Date().toISOString().slice(0,10),notes:'',poleHeight:null,poleClass:'',photos:[],attachments:[],archived:false,created:Date.now(),updated:Date.now()};await putOne('poles',p);lTab='active';openPole(p)};
+  $('#expj').onclick=()=>{if(!act.length){alert('Add at least one pole to this project first.');return}
+   exportDialog({base:safe(curProj.name),poles:[...act].sort((a,b)=>(a.created||a.updated)-(b.created||b.updated)),project:curProj})};
+ }
+}
+
+// ---------- screen 3: one pole ----------
+function openPole(p){cur=p;view='pole';renderPole()}
+const save=async()=>{await putOne('poles',cur);if(curProj){curProj.updated=Date.now();await putOne('projects',curProj,true)}};
+const markCount=ph=>cur.attachments.filter(a=>a.photoId===ph.id).length;
+const fname=()=>safe(cur.poleId||'pole');
+function addAtt(k,extra={}){const a={id:uid(),type:k,owner:'',height:null,dirs:[],note:'',...extra};cur.attachments.push(a);save();return a}
 
 function renderPole(){
  setHeader(cur.poleId||'New pole',true);
@@ -211,16 +298,17 @@ function renderPole(){
   <div class="photos" id="photos">${cur.photos.map((ph,i)=>`<div class="ph" data-i="${i}"><img src="${purl(ph)}"><span class="n">${i+1}</span>${markCount(ph)?`<span class="n" style="left:auto;right:4px;background:var(--acc);color:#000">${markCount(ph)}</span>`:''}</div>`).join('')}</div>
   <div class="row" style="margin-top:10px"><label class="btn pri" style="text-align:center;margin:0">📷 Take photo<input id="cam" type="file" accept="image/*" capture="environment" hidden></label>
   <label class="btn" style="text-align:center;margin:0">🖼 Add from gallery<input id="gal" type="file" accept="image/*" multiple hidden></label></div>
+  <div style="color:var(--mut);font-size:13px;margin-top:8px">Tap a photo to zoom in and point arrows at each attachment.</div>
  </div>
  <div class="card"><h2>Attachments &amp; heights</h2>
-  <div style="color:var(--mut);font-size:13px;margin-bottom:8px">Quick add — or open a photo and tap each attachment on it. Tap the same button again to add a second one.</div>
+  <div style="color:var(--mut);font-size:13px;margin-bottom:8px">Quick add here — or add them with arrows on a photo. Tap the same button again to add a second one.</div>
   <div class="chips" id="quick">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">+ ${t.k}</button>`).join('')}</div>
   <div id="atts" style="margin-top:14px"></div>
  </div>
  <div class="card"><h2>Diagram</h2><div id="diagram"></div></div>
  <div class="card"><h2>Notes</h2><textarea id="f_nt" rows="3" placeholder="Condition, obstructions, span lengths, traffic control…">${esc(cur.notes)}</textarea></div>
- <div class="card"><button class="dng" id="delp" style="width:100%">Delete this pole</button></div>`;
- bar.style.display='flex';bar.innerHTML='<button class="pri" id="exb">Export CSV + PDF</button>';
+ <div class="card"><div class="bar3"><button id="arcp" style="flex:1">${cur.archived?'Restore to active':'Archive this pole'}</button><button class="dng" id="delp" style="flex:1">Delete</button></div></div>`;
+ bar.style.display='flex';bar.innerHTML='<button class="pri" id="exb">Export this pole (CSV + PDF)</button>';
  const bind=(id,fn)=>$(id).addEventListener('change',fn);
  bind('#f_id',e=>{cur.poleId=e.target.value.trim();save();setHeader(cur.poleId||'New pole',true)});
  bind('#f_ut',e=>{cur.utility=e.target.value;localStorage.setItem('lastUtil',cur.utility);save()});
@@ -233,13 +321,11 @@ function renderPole(){
  $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
  document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
  document.querySelectorAll('#quick .chip').forEach(b=>b.onclick=()=>{const a=addAtt(b.dataset.k);drawAtts(a.id)});
- $('#delp').onclick=async()=>{if(confirm('Delete this pole and its photos?')){await pDel(cur.id);showList()}};
- $('#exb').onclick=doExport;
+ $('#arcp').onclick=async()=>{cur.archived=!cur.archived;await save();lTab=cur.archived?'archived':'active';showProject()};
+ $('#delp').onclick=async()=>{if(confirm('Delete this pole and its photos?')){await delOne('poles',cur.id);showProject()}};
+ $('#exb').onclick=()=>exportDialog({base:fname(),poles:[cur],project:null});
  drawAtts();
 }
-const markCount=ph=>cur.attachments.filter(a=>a.photoId===ph.id).length;
-const fname=()=>(cur.poleId||'pole').replace(/[^\w-]+/g,'_');
-function addAtt(k,extra={}){const a={id:uid(),type:k,owner:'',height:null,dirs:[],note:'',...extra};cur.attachments.push(a);save();return a}
 
 function drawAtts(focusId){
  const box=$('#atts');if(!box)return;
@@ -261,24 +347,129 @@ function drawAtts(focusId){
  if(focusId){const i=box.querySelector(`[data-id="${focusId}"] .ht`);i&&i.focus()}
 }
 
-// ---------- photo viewer / tagging ----------
-let vi=-1,vpend=null;
-function openViewer(i){vi=i;const ph=cur.photos[i];$('#vimg').src=purl(ph);$('#viewer').classList.add('on');$('#vpick').style.display='none';vpend=null;drawMarks()}
-function drawMarks(){const ph=cur.photos[vi];$('#vwrap').querySelectorAll('.mk').forEach(m=>m.remove());
- cur.attachments.forEach((a,idx)=>{if(a.photoId!==ph.id)return;const m=document.createElement('div');m.className='mk';m.style.cssText=`left:${a.x*100}%;top:${a.y*100}%;background:${tcolor(a.type)}`;m.textContent=idx+1;
-  m.onclick=ev=>{ev.stopPropagation();if(confirm('Remove marker '+(idx+1)+' ('+a.type+')?')){a.photoId=null;save();drawMarks()}};$('#vwrap').appendChild(m)})}
-$('#vimg').onclick=e=>{const r=e.target.getBoundingClientRect();vpend={x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height};
- $('#vchips').innerHTML=TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">${t.k}</button>`).join('');
- $('#vpick').style.display='';
- $('#vchips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{addAtt(b.dataset.k,{photoId:cur.photos[vi].id,x:vpend.x,y:vpend.y});vpend=null;$('#vpick').style.display='none';drawMarks()})};
-$('#vclose').onclick=()=>{$('#viewer').classList.remove('on');renderPole()};
-$('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its markers)?'))return;const ph=cur.photos[vi];cur.attachments.forEach(a=>{if(a.photoId===ph.id)a.photoId=null});cur.photos.splice(vi,1);save();$('#viewer').classList.remove('on');renderPole()};
+// ---------- photo viewer: pinch-zoom, pan, draggable arrows ----------
+const V={vi:-1,s:1,tx:0,ty:0,w0:0,h0:0,SW:0,SH:0,ah:0,ptrs:new Map(),g:null,sel:null,pend:null};
+const vstage=$('#vstage'),vwrap=$('#vwrap'),vimg=$('#vimg'),vpick=$('#vpick');
+const MAXZ=10;
+function arrowHTML(id,x,y,ang,color,num,sel){
+ const r=ang*Math.PI/180,L=56,lx=-(L+15)*Math.cos(r),ly=-(L+15)*Math.sin(r);
+ return `<div class="mk" data-id="${id}" style="left:${x*100}%;top:${y*100}%"><div class="mki"><svg width="1" height="1" style="overflow:visible;position:absolute;left:0;top:0">`+
+  (sel?`<circle r="17" fill="none" stroke="#fff" stroke-width="2.5" stroke-dasharray="5 4"/>`:'')+
+  `<g transform="rotate(${ang})"><line x1="${-L}" y1="0" x2="-6" y2="0" stroke="rgba(0,0,0,0.001)" stroke-width="38" stroke-linecap="round" style="pointer-events:stroke"/>`+
+  `<line x1="${-L}" y1="0" x2="-14" y2="0" stroke="#fff" stroke-width="9" stroke-linecap="round"/><line x1="${-L}" y1="0" x2="-14" y2="0" stroke="#000" stroke-width="6.5" stroke-linecap="round"/><line x1="${-L}" y1="0" x2="-14" y2="0" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`+
+  `<polygon points="0,0 -22,-10 -22,10" fill="${color}" stroke="#000" stroke-width="2.4" stroke-linejoin="round"/></g>`+
+  `<circle r="2" fill="#fff" stroke="#000" stroke-width=".8"/>`+
+  (num?`<g transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><circle r="10" fill="#000" fill-opacity=".75" stroke="${color}" stroke-width="1.5"/><text text-anchor="middle" dy="4" font-size="12" font-weight="700" fill="#fff" font-family="Arial">${num}</text></g>`:'')+
+  `</svg></div></div>`;
+}
+function drawMarks(){
+ const ph=cur.photos[V.vi];vwrap.querySelectorAll('.mk').forEach(e=>e.remove());
+ let h='';cur.attachments.forEach((a,i)=>{if(a.photoId===ph.id&&V.sel!==a.id)h+=arrowHTML(a.id,a.x,a.y,a.ang??45,tcolor(a.type),i+1,false)});
+ const sa=V.sel&&V.sel!=='new'&&cur.attachments.find(a=>a.id===V.sel);
+ if(sa)h+=arrowHTML(sa.id,sa.x,sa.y,sa.ang??45,tcolor(sa.type),cur.attachments.indexOf(sa)+1,true);
+ if(V.pend)h+=arrowHTML('new',V.pend.x,V.pend.y,V.pend.ang,'#ffffff',null,true);
+ vwrap.insertAdjacentHTML('beforeend',h);
+}
+function layout(keepView){
+ V.SW=vstage.clientWidth;V.SH=vstage.clientHeight;
+ const nw=vimg.naturalWidth||4,nh=vimg.naturalHeight||3,sc=Math.min(V.SW/nw,V.SH/nh);
+ V.w0=nw*sc;V.h0=nh*sc;vwrap.style.width=V.w0+'px';vwrap.style.height=V.h0+'px';
+ if(!keepView){V.s=1;V.tx=0;V.ty=0}applyView();
+}
+function applyView(){
+ const W=V.w0*V.s,H=V.h0*V.s,ah=V.ah||V.SH;
+ V.tx=W<=V.SW?(V.SW-W)/2:Math.min(0,Math.max(V.SW-W,V.tx));
+ V.ty=H<=ah?(ah-H)/2:Math.min(0,Math.max(ah-H,V.ty));
+ vwrap.style.transform=`translate(${V.tx}px,${V.ty}px) scale(${V.s})`;vwrap.style.setProperty('--inv',1/V.s);
+}
+function zoomAt(f,cx,cy){ // cx,cy in stage coords
+ const ns=Math.min(MAXZ,Math.max(1,V.s*f));if(ns===V.s)return;
+ const px=(cx-V.tx)/V.s,py=(cy-V.ty)/V.s;V.s=ns;V.tx=cx-px*ns;V.ty=cy-py*ns;applyView();
+}
+function ensureVisible(u,v){
+ const ah=V.ah||V.SH,sx=V.tx+u*V.w0*V.s,sy=V.ty+v*V.h0*V.s;
+ if(sy>ah-40)V.ty-=sy-(ah-40);if(sy<95)V.ty+=95-sy;
+ if(sx<70)V.tx+=70-sx;if(sx>V.SW-30)V.tx-=sx-(V.SW-30);applyView();
+}
+function toImg(cx,cy){const r=vstage.getBoundingClientRect();return {u:(cx-r.left-V.tx)/(V.w0*V.s),v:(cy-r.top-V.ty)/(V.h0*V.s)}}
+function selAtt(){return V.sel&&V.sel!=='new'?cur.attachments.find(a=>a.id===V.sel):null}
+
+function setPanel(){
+ const a=selAtt(),chips=curK=>`<div class="vchips">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};${curK===t.k?`background:${t.c};color:#10202e`:`color:${t.c}`}">${t.k}</button>`).join('')}</div>`;
+ let h='';
+ if(V.sel==='new')h=`<div class="pt"><b>New arrow</b> — drag it so the tip is on the exact spot, then choose what it is:</div>${chips(null)}<div class="prow"><button class="sm" id="vrot">↻ Rotate arrow</button><button class="sm" id="vcancel">Cancel</button></div>`;
+ else if(a)h=`<div class="pt"><b>Arrow ${cur.attachments.indexOf(a)+1}</b> — drag to move, tap a type to change it:</div>${chips(a.type)}<div class="prow"><input id="vht" inputmode="text" placeholder="Height ${unit==='ft'?"23'6":'7.15'}" value="${esc(fmtH(a.height))}"><button class="sm" id="vrot">↻ Rotate</button><button class="sm dng" id="vrm">Delete</button><button class="sm pri" id="vdone">Done</button></div>`;
+ else h=`<div class="pt" style="margin:0">Tap the photo to drop an arrow. Pinch to zoom, drag to move around. Tap an arrow to edit it.</div>`;
+ vpick.innerHTML=h;
+ vpick.querySelectorAll('.vchips .chip').forEach(b=>b.onclick=()=>pickType(b.dataset.k));
+ if($('#vrot'))$('#vrot').onclick=()=>{if(V.sel==='new')V.pend.ang=(V.pend.ang+45)%360;else{a.ang=((a.ang??45)+45)%360;save()}drawMarks()};
+ if($('#vcancel'))$('#vcancel').onclick=()=>{V.pend=null;V.sel=null;drawMarks();setPanel()};
+ if($('#vdone'))$('#vdone').onclick=()=>{V.sel=null;drawMarks();setPanel()};
+ if($('#vrm'))$('#vrm').onclick=()=>{if((a.height!=null||(a.dirs&&a.dirs.length)||a.owner)&&!confirm('Delete this attachment and its height?'))return;cur.attachments=cur.attachments.filter(x=>x!==a);save();V.sel=null;drawMarks();setPanel()};
+ if($('#vht'))$('#vht').onchange=e=>{a.height=parseH(e.target.value);e.target.value=fmtH(a.height);save()};
+ V.ah=V.SH-vpick.offsetHeight;applyView();
+}
+function pickType(k){
+ if(V.sel==='new'){const a=addAtt(k,{photoId:cur.photos[V.vi].id,x:V.pend.x,y:V.pend.y,ang:V.pend.ang});V.pend=null;V.sel=a.id}
+ else{const a=selAtt();if(a){a.type=k;save()}}
+ drawMarks();setPanel();
+}
+function selectMarker(id){V.sel=id;if(id!=='new')V.pend=null;drawMarks();setPanel();
+ const a=selAtt(),m=id==='new'?V.pend:a;if(m)ensureVisible(m.x,m.y)}
+function tapAt(cx,cy){
+ const {u,v}=toImg(cx,cy);if(u<0||u>1||v<0||v>1)return;
+ V.pend={x:u,y:v,ang:V.pend?V.pend.ang:45};V.sel='new';drawMarks();setPanel();ensureVisible(u,v);
+}
+function openViewer(i){
+ V.vi=i;V.sel=null;V.pend=null;V.ptrs.clear();V.g=null;V.ah=0;
+ $('#viewer').classList.add('on');
+ const go=()=>{layout(false);drawMarks();setPanel()};
+ vimg.onload=()=>requestAnimationFrame(go);vimg.src=purl(cur.photos[i]);
+ if(vimg.complete&&vimg.naturalWidth)requestAnimationFrame(go);
+}
+vstage.addEventListener('pointerdown',e=>{
+ e.preventDefault();try{vstage.setPointerCapture(e.pointerId)}catch(_){}
+ V.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+ if(V.ptrs.size===1){
+  const mk=e.target.closest&&e.target.closest('.mk');
+  if(mk){const id=mk.dataset.id;if(V.sel!==id)selectMarker(id);
+   const m=id==='new'?V.pend:selAtt();V.g={t:'marker',id,x0:e.clientX,y0:e.clientY,ax:m.x,ay:m.y,moved:false}}
+  else V.g={t:'pan',x0:e.clientX,y0:e.clientY,tx0:V.tx,ty0:V.ty,moved:false};
+ }else if(V.ptrs.size===2){
+  const [p,q]=[...V.ptrs.values()],r=vstage.getBoundingClientRect(),mx=(p.x+q.x)/2-r.left,my=(p.y+q.y)/2-r.top;
+  V.g={t:'pinch',d0:Math.hypot(p.x-q.x,p.y-q.y)||1,s0:V.s,ix:(mx-V.tx)/V.s,iy:(my-V.ty)/V.s};
+ }
+});
+vstage.addEventListener('pointermove',e=>{
+ if(!V.ptrs.has(e.pointerId))return;V.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});const g=V.g;if(!g)return;
+ if(g.t==='pan'){const dx=e.clientX-g.x0,dy=e.clientY-g.y0;if(!g.moved&&Math.hypot(dx,dy)>8)g.moved=true;if(g.moved){V.tx=g.tx0+dx;V.ty=g.ty0+dy;applyView()}}
+ else if(g.t==='marker'){const dx=e.clientX-g.x0,dy=e.clientY-g.y0;if(!g.moved&&Math.hypot(dx,dy)>5)g.moved=true;
+  if(g.moved){const x=Math.min(1,Math.max(0,g.ax+dx/(V.w0*V.s))),y=Math.min(1,Math.max(0,g.ay+dy/(V.h0*V.s)));
+   const m=g.id==='new'?V.pend:selAtt();m.x=x;m.y=y;const el=vwrap.querySelector(`.mk[data-id="${g.id}"]`);if(el){el.style.left=x*100+'%';el.style.top=y*100+'%'}}}
+ else if(g.t==='pinch'&&V.ptrs.size>=2){
+  const [p,q]=[...V.ptrs.values()],r=vstage.getBoundingClientRect(),mx=(p.x+q.x)/2-r.left,my=(p.y+q.y)/2-r.top,d=Math.hypot(p.x-q.x,p.y-q.y);
+  V.s=Math.min(MAXZ,Math.max(1,g.s0*d/g.d0));V.tx=mx-g.ix*V.s;V.ty=my-g.iy*V.s;applyView();
+ }
+});
+function pEnd(e){
+ if(!V.ptrs.has(e.pointerId))return;const g=V.g;V.ptrs.delete(e.pointerId);
+ if(g&&g.t==='pan'&&!g.moved&&e.type==='pointerup')tapAt(e.clientX,e.clientY);
+ else if(g&&g.t==='marker'&&g.moved){if(g.id!=='new')save();drawMarks()}
+ V.g=V.ptrs.size?{t:'none'}:null;
+}
+vstage.addEventListener('pointerup',pEnd);vstage.addEventListener('pointercancel',pEnd);
+vstage.addEventListener('wheel',e=>{e.preventDefault();const r=vstage.getBoundingClientRect();zoomAt(e.deltaY<0?1.2:1/1.2,e.clientX-r.left,e.clientY-r.top)},{passive:false});
+$('#vzi').onclick=()=>zoomAt(1.6,V.SW/2,(V.ah||V.SH)/2);$('#vzo').onclick=()=>zoomAt(1/1.6,V.SW/2,(V.ah||V.SH)/2);
+$('#vfit').onclick=()=>{V.s=1;V.tx=0;V.ty=0;applyView()};
+window.addEventListener('resize',()=>{if($('#viewer').classList.contains('on')){layout(true);setPanel()}});
+$('#vclose').onclick=()=>{$('#viewer').classList.remove('on');V.sel=null;V.pend=null;renderPole()};
+$('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its arrows)?'))return;const ph=cur.photos[V.vi];cur.attachments.forEach(a=>{if(a.photoId===ph.id)a.photoId=null});cur.photos.splice(V.vi,1);save();$('#viewer').classList.remove('on');renderPole()};
 
 // ---------- CSV ----------
 function csv(poles){
- const rows=[['Pole ID','Utility','Lat','Lng','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
+ const rows=[['Project','Pole ID','Utility','Lat','Lng','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
  const ftin=m=>{const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"'};
- poles.forEach(p=>{const base=[p.poleId,p.utility,p.lat??'',p.lng??'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
+ poles.forEach(p=>{const base=[projName[p.projectId]||'',p.poleId,p.utility,p.lat??'',p.lng??'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
   const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
   if(!at.length)rows.push([...base,'','','','','','',p.notes]);
   at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirStr(a),a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',ph>=0?ph+1:'',p.notes])})});
@@ -286,7 +477,7 @@ function csv(poles){
 }
 function dl(file){const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove()}
 
-// ---------- PDF (built on canvas pages, no libraries) ----------
+// ---------- PDF (pages drawn on canvas, photos embedded as original JPEG) ----------
 const PW=1275,PH=1650,PM=60;
 function mkPage(){const c=document.createElement('canvas');c.width=PW;c.height=PH;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,PW,PH);g.fillStyle='#111';g.textBaseline='top';return {c,g}}
 const svgImg=svg=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('diagram render failed'));i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)});
@@ -294,17 +485,24 @@ function fit(g,text,maxW,px,weight=''){let s=px;do{g.font=`${weight} ${s}px Aria
 function wrap(g,text,x,y,maxW,lh){for(const para of String(text).split('\n')){let line='';for(const w of para.split(/\s+/)){const t=line?line+' '+w:w;if(g.measureText(t).width>maxW&&line){g.fillText(line,x,y);y+=lh;line=w}else line=t}g.fillText(line,x,y);y+=lh}return y}
 function fitDraw(g,bmp,x,y,w,h){const s=Math.min(w/bmp.width,h/bmp.height),dw=bmp.width*s,dh=bmp.height*s,dx=x+(w-dw)/2,dy=y;g.drawImage(bmp,dx,dy,dw,dh);return {dx,dy,dw,dh}}
 const sortedAtts=p=>[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
-
+function drawArrowC(g,cx,cy,ang,color){
+ const r=ang*Math.PI/180,L=78,hl=28,hw=13;g.save();g.translate(cx,cy);g.rotate(r);g.lineCap='round';g.lineJoin='round';
+ g.beginPath();g.moveTo(-L,0);g.lineTo(-hl+4,0);
+ g.strokeStyle='#fff';g.lineWidth=14;g.stroke();g.strokeStyle='#000';g.lineWidth=10;g.stroke();g.strokeStyle=color;g.lineWidth=6;g.stroke();
+ g.fillStyle=color;g.strokeStyle='#000';g.lineWidth=3;g.beginPath();g.moveTo(0,0);g.lineTo(-hl,-hw);g.lineTo(-hl,hw);g.closePath();g.fill();g.stroke();
+ g.restore();g.fillStyle='#fff';g.strokeStyle='#000';g.lineWidth=2;g.beginPath();g.arc(cx,cy,3.5,0,7);g.fill();g.stroke();
+ return {tx:cx-L*Math.cos(r),ty:cy-L*Math.sin(r),c:Math.cos(r),s:Math.sin(r)};
+}
 async function pgSummary(p){
  const {c,g}=mkPage();
  g.fillStyle='#111';g.font='bold 56px Arial';g.fillText('Pole '+(p.poleId||'—'),PM,PM);
+ if(projName[p.projectId]){g.font='28px Arial';g.fillStyle='#777';g.textAlign='right';g.fillText(projName[p.projectId],PW-PM,PM+14);g.textAlign='left'}
  g.font='32px Arial';g.fillStyle='#444';
  g.fillText(`${p.utility}   |   ${p.date}`,PM,PM+76);
  g.fillText(`Pole height: ${fmtH(p.poleHeight)||'—'}      Class: ${p.poleClass||'—'}`,PM,PM+122);
  g.fillText('GPS: '+(p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6):'—'),PM,PM+168);
  g.drawImage(await svgImg(diagram(p,{light:true})),PM,270,560,812);
  g.strokeStyle='#bbb';g.lineWidth=2;g.strokeRect(PM,270,560,812);
- // table
  const x0=660,W=555,cw=[48,215,112,180];let y=270;
  g.fillStyle='#e8e8e8';g.fillRect(x0,y,W,46);g.fillStyle='#111';g.font='bold 26px Arial';
  let cx=x0+8;['#','Attachment','Dir','Height'].forEach((t,i)=>{g.fillText(t,cx,y+9);cx+=cw[i]});y+=46;
@@ -314,7 +512,7 @@ async function pgSummary(p){
   const n=a.photoId?String(p.attachments.indexOf(a)+1):'';
   cx=x0+8;g.fillStyle='#111';
   g.font='26px Arial';g.fillText(n,cx,y+10);cx+=cw[0];
-  fit(g,a.type,cw[1]-10,26);g.fillStyle=shade(tcolor(a.type),.55);g.fillText('■ ',cx-2,y+10);
+  g.fillStyle=shade(tcolor(a.type),.55);g.font='26px Arial';g.fillText('■ ',cx-2,y+10);
   g.fillStyle='#111';fit(g,a.type,cw[1]-34,26);g.fillText(a.type,cx+24,y+10);
   if(a.owner){g.fillStyle='#666';g.font='22px Arial';fit(g,a.owner,cw[1]-34,22);g.fillText(a.owner,cx+24,y+40)}
   cx+=cw[1];g.fillStyle='#111';fit(g,dirStr(a),cw[2]-10,26,'bold');g.fillText(dirStr(a),cx,y+10);
@@ -332,83 +530,112 @@ async function pgAnnot(p,i){
  const r=fitDraw(g,bmp,PM,110,PW-2*PM,1000);
  const on=p.attachments.map((a,idx)=>({a,n:idx+1})).filter(o=>o.a.photoId===ph.id);
  for(const o of on){const a=o.a,cx=r.dx+a.x*r.dw,cy=r.dy+a.y*r.dh;
-  g.lineWidth=5;g.strokeStyle='#fff';g.fillStyle=tcolor(a.type);g.beginPath();g.arc(cx,cy,24,0,7);g.fill();g.stroke();
-  g.lineWidth=2;g.strokeStyle='#000';g.beginPath();g.arc(cx,cy,24,0,7);g.stroke();
-  g.fillStyle='#000';g.font='bold 26px Arial';g.textAlign='center';g.fillText(String(o.n),cx,cy-13);g.textAlign='left';
-  const t=fmtH(a.height)+(dirStr(a)?'  '+dirStr(a):'');g.font='bold 30px Arial';const tw=g.measureText(t).width+20;
-  let bx=cx+32;if(bx+tw>r.dx+r.dw)bx=cx-32-tw;
-  g.fillStyle='rgba(0,0,0,.78)';g.fillRect(bx,cy-20,tw,40);g.fillStyle='#fff';g.fillText(t,bx+10,cy-14)}
- // legend
- let ly=r.dy+r.dh+30;const rowsPer=Math.max(1,Math.floor((PH-50-ly)/42));
+  const t=drawArrowC(g,cx,cy,a.ang??45,tcolor(a.type));
+  const txt=`${o.n}: ${tinfo(a.type).s}${a.height!=null?'  '+fmtH(a.height):''}${dirStr(a)?'  '+dirStr(a):''}`;g.font='bold 30px Arial';const tw=g.measureText(txt).width+22,th=42;
+  let bx,by;
+  if(Math.abs(t.c)<0.25){bx=t.tx-tw/2;by=t.s>0?t.ty-th-6:t.ty+6}else{bx=t.c>0?t.tx-tw-4:t.tx+4;by=t.ty-th/2}
+  bx=Math.min(r.dx+r.dw-tw,Math.max(r.dx,bx));by=Math.min(r.dy+r.dh-th,Math.max(r.dy,by));
+  g.fillStyle='rgba(0,0,0,.8)';g.fillRect(bx,by,tw,th);g.fillStyle=tcolor(a.type);g.fillRect(bx,by,7,th);
+  g.fillStyle='#fff';g.textBaseline='middle';g.fillText(txt,bx+16,by+th/2+1);g.textBaseline='top'}
+ let ly=r.dy+r.dh+30;
  g.font='bold 28px Arial';g.fillStyle='#111';g.fillText('Attachments on this photo',PM,ly);ly+=44;
  const per=Math.max(1,Math.floor((PH-50-ly)/42));
  on.forEach((o,k)=>{const col=Math.floor(k/per),row=k%per,x=PM+col*590,y=ly+row*42;
   g.fillStyle=tcolor(o.a.type);g.beginPath();g.arc(x+18,y+16,16,0,7);g.fill();
   g.fillStyle='#000';g.font='bold 20px Arial';g.textAlign='center';g.fillText(String(o.n),x+18,y+6);g.textAlign='left';
-  g.fillStyle='#111';fit(g,`${o.a.type}${o.a.owner?' ('+o.a.owner+')':''}   ${dirStr(o.a)}`,380,26);
-  g.fillText(`${o.a.type}${o.a.owner?' ('+o.a.owner+')':''}   ${dirStr(o.a)}`,x+44,y+4);
+  const lab=`${o.a.type}${o.a.owner?' ('+o.a.owner+')':''}   ${dirStr(o.a)}`;
+  g.fillStyle='#111';fit(g,lab,380,26);g.fillText(lab,x+44,y+4);
   g.font='bold 28px Arial';g.fillText(fmtH(o.a.height)||'—',x+440,y+3)});
  bmp.close&&bmp.close();return c;
 }
-async function pgPhotos(p,i){
- const {c,g}=mkPage();
- for(let k=0;k<2;k++){const idx=i+k;if(idx>=p.photos.length)break;
-  const y0=k?830:60;g.fillStyle='#111';g.font='bold 32px Arial';g.fillText(`Pole ${p.poleId||'—'} — Photo ${idx+1} of ${p.photos.length}`,PM,y0);
-  const bmp=await createImageBitmap(p.photos[idx].blob);fitDraw(g,bmp,PM,y0+50,PW-2*PM,650);bmp.close&&bmp.close()}
- return c;
+async function pgCovers(proj,poles){
+ const out=[],per1=24,per2=31;let idx=0;
+ const photos=poles.reduce((t,p)=>t+p.photos.length,0);
+ do{const {c,g}=mkPage(),first=out.length===0;let y=PM;
+  if(first){g.fillStyle='#777';g.font='30px Arial';g.fillText('PROJECT',PM,y);y+=44;g.fillStyle='#111';fit(g,proj.name,PW-2*PM,64,'bold');g.fillText(proj.name,PM,y);y+=90;
+   g.fillStyle='#444';g.font='30px Arial';g.fillText(`${poles.length} pole${poles.length===1?'':'s'}  ·  ${photos} photo${photos===1?'':'s'}  ·  exported ${new Date().toLocaleDateString()}`,PM,y);y+=50;
+   if(proj.notes){g.font='26px Arial';y=wrap(g,proj.notes,PM,y,PW-2*PM,34)+10}y+=20}
+  const x0=PM,W=PW-2*PM,cw=[70,420,330,200,155];
+  g.fillStyle='#e8e8e8';g.fillRect(x0,y,W,46);g.fillStyle='#111';g.font='bold 26px Arial';let cx=x0+10;['#','Pole ID','Utility','Attachments','Photos'].forEach((t,i)=>{g.fillText(t,cx,y+9);cx+=cw[i]});y+=46;
+  const per=first?per1:per2;
+  for(let k=0;k<per&&idx<poles.length;k++,idx++){const p=poles[idx];cx=x0+10;g.fillStyle='#111';g.font='26px Arial';
+   g.fillText(String(idx+1),cx,y+10);cx+=cw[0];fit(g,p.poleId||'(no ID)',cw[1]-14,26,'bold');g.fillText(p.poleId||'(no ID)',cx,y+10);cx+=cw[1];
+   fit(g,p.utility,cw[2]-14,26);g.fillText(p.utility,cx,y+10);cx+=cw[2];g.font='26px Arial';g.fillText(String(p.attachments.length),cx,y+10);cx+=cw[3];g.fillText(String(p.photos.length),cx,y+10);
+   y+=48;g.strokeStyle='#ccc';g.lineWidth=1;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+W,y);g.stroke()}
+  out.push(c)}while(idx<poles.length);
+ return out;
 }
-async function buildPdf(canvases){
+async function pgFromCanvas(c){
+ const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',.86));const bytes=new Uint8Array(await bl.arrayBuffer());const iw=c.width,ih=c.height;c.width=c.height=0;
+ return {W:612,H:792,bytes,iw,ih,content:'q 612 0 0 792 0 0 cm /Im0 Do Q'};
+}
+const pdfStr=t=>String(t).replace(/[^\x20-\x7E]/g,'?').replace(/([\\()])/g,'\\$1');
+async function pgFromPhoto(p,i){
+ const bl=p.photos[i].blob,bmp=await createImageBitmap(bl),iw=bmp.width,ih=bmp.height;bmp.close&&bmp.close();
+ const bytes=new Uint8Array(await bl.arrayBuffer()),land=iw>ih,W=land?792:612,H=land?612:792,m=28,capH=26,aw=W-2*m,ah=H-2*m-capH;
+ const s=Math.min(aw/iw,ah/ih),dw=iw*s,dh=ih*s,x=(W-dw)/2,y=m+(ah-dh)/2;
+ const cap=`Pole ${p.poleId||'-'} - Photo ${i+1} of ${p.photos.length}`;
+ return {W,H,bytes,iw,ih,content:`BT /F1 13 Tf ${m} ${H-m-12} Td (${pdfStr(cap)}) Tj ET q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im0 Do Q`};
+}
+function buildPdf(pg){
  const enc=new TextEncoder(),chunks=[],offs=[];let pos=0;
  const w=b=>{if(typeof b==='string')b=enc.encode(b);chunks.push(b);pos+=b.length};
- const n=canvases.length,jpgs=[];
- for(const c of canvases){const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',.86));jpgs.push(new Uint8Array(await bl.arrayBuffer()))}
+ const n=pg.length;
  const obj=(id,fn)=>{offs[id]=pos;w(`${id} 0 obj\n`);fn();w('endobj\n')};
  w('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
  obj(1,()=>w('<< /Type /Catalog /Pages 2 0 R >>\n'));
- obj(2,()=>w(`<< /Type /Pages /Count ${n} /Kids [${canvases.map((_,i)=>`${3+3*i} 0 R`).join(' ')}] >>\n`));
- canvases.forEach((c,i)=>{const pid=3+3*i,cid=pid+1,iid=pid+2,cs='q 612 0 0 792 0 0 cm /Im0 Do Q';
-  obj(pid,()=>w(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 ${iid} 0 R >> >> /Contents ${cid} 0 R >>\n`));
-  obj(cid,()=>w(`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream\n`));
-  obj(iid,()=>{w(`<< /Type /XObject /Subtype /Image /Width ${c.width} /Height ${c.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpgs[i].length} >>\nstream\n`);w(jpgs[i]);w('\nendstream\n')})});
+ obj(2,()=>w(`<< /Type /Pages /Count ${n} /Kids [${pg.map((_,i)=>`${3+3*i} 0 R`).join(' ')}] >>\n`));
+ pg.forEach((q,i)=>{const pid=3+3*i,cid=pid+1,iid=pid+2;
+  obj(pid,()=>w(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${q.W} ${q.H}] /Resources << /XObject << /Im0 ${iid} 0 R >> /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${cid} 0 R >>\n`));
+  obj(cid,()=>w(`<< /Length ${q.content.length} >>\nstream\n${q.content}\nendstream\n`));
+  obj(iid,()=>{w(`<< /Type /XObject /Subtype /Image /Width ${q.iw} /Height ${q.ih} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${q.bytes.length} >>\nstream\n`);w(q.bytes);w('\nendstream\n')})});
  const xref=pos,total=3+3*n;
  w(`xref\n0 ${total}\n0000000000 65535 f \n`);
  for(let id=1;id<total;id++)w(String(offs[id]).padStart(10,'0')+' 00000 n \n');
  w(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
  return new Blob(chunks,{type:'application/pdf'});
 }
-async function makePdf(p){
- const pages=[await pgSummary(p)];
- for(let i=0;i<p.photos.length;i++)if(p.attachments.some(a=>a.photoId===p.photos[i].id))pages.push(await pgAnnot(p,i));
- for(let i=0;i<p.photos.length;i+=2)pages.push(await pgPhotos(p,i));
- return buildPdf(pages);
+async function makePdf(poles,opts={}){
+ const pgs=[];
+ if(opts.project)for(const c of await pgCovers(opts.project,poles))pgs.push(await pgFromCanvas(c));
+ for(let k=0;k<poles.length;k++){const p=poles[k];
+  if(opts.onProgress){opts.onProgress(k+1,poles.length,p);await tick()}
+  pgs.push(await pgFromCanvas(await pgSummary(p)));
+  for(let i=0;i<p.photos.length;i++)if(p.attachments.some(a=>a.photoId===p.photos[i].id))pgs.push(await pgFromCanvas(await pgAnnot(p,i)));
+  for(let i=0;i<p.photos.length;i++)pgs.push(await pgFromPhoto(p,i));
+ }
+ return buildPdf(pgs);
 }
 
 // ---------- export dialog ----------
-async function doExport(){
+async function exportDialog({base,poles,project}){
  const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');
- h.textContent='Building PDF…';b.innerHTML='<div class="empty" style="padding:10px">One moment — rendering pages</div>';
- let pdf;try{pdf=await makePdf(cur)}catch(e){h.textContent='Could not build the PDF';b.innerHTML=`<p style="color:var(--mut)">${esc(e.message)}</p><button id="xc">Close</button>`;$('#xc').onclick=()=>m.classList.remove('on');return}
- const files=[new File([pdf],fname()+'.pdf',{type:'application/pdf'}),new File([csv([cur])],fname()+'.csv',{type:'text/csv'})];
- const photos=cur.photos.map((ph,i)=>new File([ph.blob],`${fname()}_photo${i+1}.jpg`,{type:'image/jpeg'}));
- const kb=f=>Math.round(f.size/1024)+' KB';
+ h.textContent=project?'Building project PDF…':'Building PDF…';b.innerHTML='<div class="empty" id="prog" style="padding:10px">Starting…</div>';
+ await tick();
+ let pdf;try{pdf=await makePdf(poles,{project,onProgress:(k,n,p)=>{const e=$('#prog');if(e)e.textContent=`Pole ${k} of ${n}: ${p.poleId||'(no ID)'}`}})}
+ catch(e){h.textContent='Could not build the PDF';b.innerHTML=`<p style="color:var(--mut)">${esc(e.message)}</p><button id="xc">Close</button>`;$('#xc').onclick=()=>m.classList.remove('on');return}
+ const files=[new File([pdf],base+'.pdf',{type:'application/pdf'}),new File([csv(poles)],base+'.csv',{type:'text/csv'})];
+ const photos=[],seen={};
+ poles.forEach(p=>{let nm=safe(p.poleId||'pole');seen[nm]=(seen[nm]||0)+1;if(seen[nm]>1)nm+='_'+seen[nm];p.photos.forEach((ph,i)=>photos.push(new File([ph.blob],`${nm}_photo${i+1}.jpg`,{type:'image/jpeg'})))});
+ const kb=f=>f.size>1048576?(f.size/1048576).toFixed(1)+' MB':Math.round(f.size/1024)+' KB';
  const canShare=f=>navigator.canShare&&navigator.canShare({files:f});
  h.textContent='Ready to send';
- b.innerHTML=`<div>📄 ${esc(files[0].name)} <small>${kb(files[0])}</small></div><div style="margin-top:8px">📊 ${esc(files[1].name)} <small>${kb(files[1])}</small></div>
+ b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:10px">${poles.length} pole${poles.length===1?'':'s'}, ${photos.length} photo${photos.length===1?'':'s'} — the PDF has the sketches, tagged photos and every photo at full size.</div>
+  <div>📄 ${esc(files[0].name)} <small>${kb(files[0])}</small></div><div style="margin-top:8px">📊 ${esc(files[1].name)} <small>${kb(files[1])}</small></div>
   ${canShare(files)?'<button class="pri" id="xs">Share PDF + CSV</button>':''}
   <button id="xd" ${canShare(files)?'':'class="pri"'}>Download PDF + CSV</button>
-  ${photos.length&&canShare(photos)?`<button id="xp">Share ${photos.length} photo${photos.length>1?'s':''} separately</button>`:''}
+  ${photos.length?(canShare(photos)?`<button id="xp">Share ${photos.length} photo${photos.length>1?'s':''} separately</button>`:`<button id="xp">Download ${photos.length} photo${photos.length>1?'s':''} separately</button>`):''}
   <button id="xc">Close</button>`;
- const sh=async f=>{try{await navigator.share({files:f,title:'Pole '+cur.poleId,text:`Pole ${cur.poleId} – ${cur.utility}`})}catch(e){}};
+ const sh=async f=>{try{await navigator.share({files:f,title:base})}catch(e){}};
  if($('#xs'))$('#xs').onclick=()=>sh(files);
- if($('#xp'))$('#xp').onclick=()=>sh(photos);
+ if($('#xp'))$('#xp').onclick=()=>canShare(photos)?sh(photos):photos.forEach((f,i)=>setTimeout(()=>dl(f),i*500));
  $('#xd').onclick=()=>{files.forEach((f,i)=>setTimeout(()=>dl(f),i*500))};
  $('#xc').onclick=()=>m.classList.remove('on');
 }
 
 // ---------- boot ----------
-$('#back').onclick=showList;
 $('#unit').textContent=unit;
-$('#unit').onclick=()=>{unit=unit==='ft'?'m':'ft';localStorage.setItem('unit',unit);$('#unit').textContent=unit;cur?renderPole():showList()};
-idb().then(showList);
+$('#unit').onclick=()=>{unit=unit==='ft'?'m':'ft';localStorage.setItem('unit',unit);$('#unit').textContent=unit;view==='pole'?renderPole():view==='project'?showProject():showProjects()};
+idb().then(migrate).then(showProjects);
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script></body></html>
