@@ -76,6 +76,8 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 .pcard{display:flex;align-items:center;gap:12px;cursor:pointer}
 .modal#viewer{background:#000}
 .tysel{min-height:36px;padding:2px 6px;font-weight:700;font-size:15px;background:transparent;border:1px solid var(--line);width:100%}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;max-width:90vw;background:rgba(0,0,0,.88);color:#fff;border:1px solid var(--acc);padding:10px 16px;border-radius:22px;z-index:40;display:none;font-weight:600;text-align:center}
+.ht:focus{outline:3px solid var(--acc)}
 </style></head>
 <body>
 <header><button id="back" class="sm" style="display:none">‹ Back</button><h1 id="title">Pole Survey</h1><button id="unit" class="sm">ft</button></header>
@@ -87,6 +89,7 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
  <div class="stage" id="vstage"><div id="vwrap"><img id="vimg" alt=""></div></div>
  <div class="sheetpick" id="vpick"></div>
 </div>
+<div id="toast"></div>
 <div class="modal" id="exp"><div class="dlg"><h3 id="exph"></h3><div id="expb"></div></div></div>
 
 <script>
@@ -121,6 +124,9 @@ const safe=s=>String(s||'').replace(/[^\w-]+/g,'_').replace(/^_+|_+$/g,'')||'unt
 const tick=()=>new Promise(r=>setTimeout(r,0));
 let unit=localStorage.getItem('unit')||'ft';
 const projName={};
+let distoMode=localStorage.getItem('disto')==='1'; // laser reading arrives as typed text; auto-advance to the next empty height
+let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',2600)}
+function focusNextEmpty(){const e=[...document.querySelectorAll('#atts .ht')].find(i=>!i.value);if(e){e.focus({preventScroll:true});e.scrollIntoView({block:'center',behavior:'smooth'});return e}return null}
 
 // ---------- storage (IndexedDB) ----------
 let db;
@@ -371,6 +377,8 @@ function renderPole(){
   <div style="color:var(--mut);font-size:13px;margin-top:8px">Tap a photo to zoom in and point arrows at each attachment.</div>
  </div>
  <div class="card"><h2>Attachments &amp; heights</h2>
+  <div class="row" style="margin-bottom:6px"><button class="sm${distoMode?' pri':''}" id="dm">⚡ Disto mode: ${distoMode?'ON':'OFF'}</button></div>
+  ${distoMode?'<div style="color:var(--mut);font-size:13px;margin-bottom:10px">Tap a height box, then press the Disto button. Each reading fills the box and jumps to the next empty one. Keep the Disto on the same unit as the ft/m button at the top.</div>':''}
   <div style="color:var(--mut);font-size:13px;margin-bottom:8px">Quick add here — or add them with arrows on a photo. Tap the same button again to add a second one.</div>
   <div class="chips" id="quick">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">+ ${t.k}</button>`).join('')}</div>
   <div id="atts" style="margin-top:14px"></div>
@@ -397,6 +405,7 @@ function renderPole(){
  $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
  document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
  document.querySelectorAll('#quick .chip').forEach(b=>b.onclick=()=>{const a=addAtt(b.dataset.k);drawAtts(a.id)});
+ $('#dm').onclick=()=>{distoMode=!distoMode;localStorage.setItem('disto',distoMode?'1':'0');renderPole();if(distoMode)focusNextEmpty()};
  $('#arcp').onclick=async()=>{cur.archived=!cur.archived;await save();lTab=cur.archived?'archived':'active';showProject()};
  $('#delp').onclick=async()=>{if(confirm('Delete this pole and its photos?')){await delOne('poles',cur.id);showProject()}};
  $('#exb').onclick=()=>exportDialog({base:fname(),poles:[cur],project:null});
@@ -413,14 +422,16 @@ function drawAtts(focusId){
  box.innerHTML=list.length?list.map(a=>{const n=cur.attachments.indexOf(a)+1;const over=cur.poleHeight&&a.height>cur.poleHeight;
   return `<div class="attbox" data-id="${a.id}" style="border-left:5px solid ${acol(a)};padding-left:9px"><div class="att"><div class="dot" title="Tap to change colour" style="background:${acol(a)};cursor:pointer">${a.photoId?n:''}</div>
   <div class="nm"><select class="tysel">${TYPES.map(t=>`<option value="${t.k}"${t.k===a.type?' selected':''}>${t.k}</option>`).join('')}</select><small><input class="own" value="${esc(a.owner)}" placeholder="owner / note" style="min-height:30px;padding:4px 8px;font-size:13px;font-weight:400;text-align:left;margin-top:3px"></small></div>
-  <input class="ht ${over?'bad':''}" inputmode="text" value="${esc(fmtH(a.height))}" placeholder="${unit==='ft'?"23'6":'7.15'}">
+  <input class="ht ${over?'bad':''}" inputmode="${distoMode?'none':'text'}" value="${esc(fmtH(a.height))}" placeholder="${unit==='ft'?"23'6":'7.15'}">
   <button class="sm dng del">✕</button></div>
   ${a.type==='Crossarm'?`<div class="dl">Primaries on this crossarm:</div><div class="dirs" style="grid-template-columns:repeat(3,1fr);margin-bottom:6px">${[1,2,3].map(n=>`<button class="dbtn nb${(a.n||3)===n?' on':''}" data-n="${n}">${n}</button>`).join('')}</div>`:''}
   <div class="dl">Cables leave toward:</div>
   <div class="dirs">${DIRS.map(d=>`<button class="dbtn${(a.dirs||[]).includes(d)?' on':''}" data-d="${d}">${d}</button>`).join('')}</div></div>`}).join(''):'<div class="empty" style="padding:10px">None yet</div>';
  box.querySelectorAll('.attbox').forEach(r=>{const a=cur.attachments.find(x=>x.id===r.dataset.id);
-  r.querySelector('.ht').onchange=e=>{a.height=parseH(e.target.value);save();drawAtts();};
-  r.querySelector('.ht').onkeydown=e=>{if(e.key==='Enter')e.target.blur()};
+  const ht=r.querySelector('.ht');let tmr;
+  ht.onchange=()=>{clearTimeout(tmr);const v=parseH(ht.value);a.height=v;save();drawAtts();if(distoMode&&v!=null){const nx=focusNextEmpty();toast(`✓ ${a.type} = ${fmtH(v)}${nx?'  —  next: '+(cur.attachments.find(x=>x.id===nx.closest('.attbox').dataset.id)||{}).type:''}`)}};
+  ht.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();ht.blur()}};
+  if(distoMode)ht.oninput=()=>{clearTimeout(tmr);if(parseH(ht.value)!=null)tmr=setTimeout(()=>ht.blur(),700)};
   r.querySelector('.own').onchange=e=>{a.owner=e.target.value;save();$('#diagram').innerHTML=diagram(cur)};
   r.querySelector('.dot').onclick=()=>{a.ci=((a.ci??0)+1)%PAL.length;save();drawAtts()};
   r.querySelector('.tysel').onchange=e=>{a.type=e.target.value;if(a.type==='Crossarm'&&!a.n)a.n=3;save();drawAtts()};
