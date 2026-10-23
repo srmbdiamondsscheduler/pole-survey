@@ -75,6 +75,7 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 .prow{display:flex;gap:8px;margin-top:10px;align-items:center}.prow>*{flex:1}.prow input{min-height:42px;padding:8px 10px;font-weight:700;text-align:right}
 .pcard{display:flex;align-items:center;gap:12px;cursor:pointer}
 .modal#viewer{background:#000}
+.tysel{min-height:36px;padding:2px 6px;font-weight:700;font-size:15px;background:transparent;border:1px solid var(--line);width:100%}
 </style></head>
 <body>
 <header><button id="back" class="sm" style="display:none">‹ Back</button><h1 id="title">Pole Survey</h1><button id="unit" class="sm">ft</button></header>
@@ -92,7 +93,7 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 'use strict';
 // ---------- constants ----------
 const TYPES=[
- {k:'Primary',s:'Primary',c:'#e5645a'},{k:'Neutral',s:'Neutral',c:'#9aa7b3'},{k:'Secondary',s:'Secondary',c:'#e8a04a'},
+ {k:'Primary',s:'Primary',c:'#e5645a'},{k:'Crossarm',s:'Crossarm',c:'#d4a373'},{k:'Neutral',s:'Neutral',c:'#9aa7b3'},{k:'Secondary',s:'Secondary',c:'#e8a04a'},
  {k:'Transformer',s:'Xfmr',c:'#c77dff'},{k:'Street light',s:'Street light',c:'#f2e06b'},
  {k:'Power supply',s:'Pwr supply',c:'#ff7eb6'},{k:'Fuse',s:'Fuse',c:'#d6ff6b'},{k:'Bracket',s:'Bracket',c:'#b5a7ff'},
  {k:'Telecom - existing',s:'Telecom',c:'#6fb3d9'},{k:'Fibre - existing',s:'Fibre',c:'#4cc38a'},
@@ -103,6 +104,11 @@ const UTILS=['Manitoba Hydro','Synergy North','Hydro One','Bell','Other'];
 const tinfo=k=>TYPES.find(t=>t.k===k)||TYPES[TYPES.length-1];
 const tcolor=k=>tinfo(k).c;
 const shade=(hex,f)=>'#'+[1,3,5].map(i=>Math.round(parseInt(hex.substr(i,2),16)*f).toString(16).padStart(2,'0')).join('');
+const dname=a=>a.type==='Crossarm'?`Crossarm (${a.n||3} pri)`:a.type;
+const CABLE=new Set(['Primary','Neutral','Secondary','Telecom - existing','Fibre - existing','Strand - existing','Strand - proposed','Guy / anchor','Other']);
+const BR={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
+const VIEW=30*Math.PI/180; // viewer stands south-south-west of the pole, looking north-north-east
+const proj=(b,len)=>{const r=b*Math.PI/180,E=Math.sin(r),N=Math.cos(r);return [1.1*(E*Math.cos(VIEW)-N*Math.sin(VIEW))*len,-0.7*(E*Math.sin(VIEW)+N*Math.cos(VIEW))*len]};
 const dirStr=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)).join(',');
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -193,29 +199,56 @@ function glyph(k,xe,y,c,bg){
  }
 }
 function diagram(p,o={}){
- const light=!!o.light,w=400,h=580;
- const bg=light?'#ffffff':'#0b1620',ink=light?'#222':'#cfd8df',sub=light?'#444':'#9db3c4',gnd=light?'#6b5a3e':'#7a6a4f',gtx=light?'#555':'#9a9a9a',dim=light?'#99a':'#52697c';
+ const light=!!o.light,w=440,h=580;
+ const bg=light?'#ffffff':'#0b1620',ink=light?'#222':'#cfd8df',sub=light?'#444':'#9db3c4',dim=light?'#99a':'#52697c',leadc=light?'#888':'#6d8497';
+ const NSc=light?'#2a6fa3':'#6fb3d9',EWc=light?'#b8741a':'#e8a04a';
  const col=k=>light?shade(tcolor(k),.62):tcolor(k);
  const atts=p.attachments.filter(a=>a.height!=null).sort((a,b)=>b.height-a.height);
  const top=Math.max(p.poleHeight||0,...atts.map(a=>a.height),3)*1.04;
- const padT=24,padB=34,gy=h-padB,sc=(gy-padT)/top,px=170,pw0=16,pw1=9;
+ const padT=30,padB=62,gy=h-padB,sc=(gy-padT)/top,px=170,pw0=16,pw1=9,G=46;
  const y=m=>gy-m*sc;const ph=p.poleHeight||Math.max(...atts.map(a=>a.height),0)+1;
  const pwAt=m=>pw0-(pw0-pw1)*Math.min(1,m/ph);
+ const stub=(x0,y0,d,len,c,dash)=>{const [dx,dy]=proj(BR[d],len),x1=x0+dx,y1=y0+dy,an=Math.atan2(dy,dx),ca=Math.cos(an),sa=Math.sin(an),ah=6,aw=3.2;
+  return {back:dy<-0.01,svg:`<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${(x1-ca*ah*.7).toFixed(1)}" y2="${(y1-sa*ah*.7).toFixed(1)}" stroke="${c}" stroke-width="2.4" stroke-linecap="round"${dash?' stroke-dasharray="5 3"':''}/>`+
+   `<polygon points="${x1.toFixed(1)},${y1.toFixed(1)} ${(x1-ca*ah+sa*aw).toFixed(1)},${(y1-sa*ah-ca*aw).toFixed(1)} ${(x1-ca*ah-sa*aw).toFixed(1)},${(y1-sa*ah+ca*aw).toFixed(1)}" fill="${c}"/>`}};
  let s=`<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" font-family="Arial,Helvetica,sans-serif">`;
+ s+=`<defs><linearGradient id="pg" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#b79563"/><stop offset=".45" stop-color="#8a6a43"/><stop offset="1" stop-color="#553f26"/></linearGradient></defs>`;
  s+=`<rect width="${w}" height="${h}" fill="${bg}"/>`;
- s+=`<line x1="10" y1="${gy}" x2="${w-10}" y2="${gy}" stroke="${gnd}" stroke-width="2"/><text x="14" y="${gy+16}" font-size="11" fill="${gtx}">GROUND</text>`;
- s+=`<polygon points="${px-pw0/2},${gy} ${px+pw0/2},${gy} ${px+pw1/2},${y(ph)} ${px-pw1/2},${y(ph)}" fill="#8a6a43" stroke="#c9a46e"/>`;
- if(p.poleHeight)s+=`<text x="${px}" y="${y(ph)-6}" font-size="11" fill="${light?'#7a5a2a':'#c9a46e'}" text-anchor="middle">${esc(fmtH(p.poleHeight))}</text>`;
+ // ground plane with compass: N-S axis and E-W axis in different colours
+ s+=`<ellipse cx="${px}" cy="${gy}" rx="${(1.1*G).toFixed(1)}" ry="${(0.7*G).toFixed(1)}" fill="${light?'#f3efe6':'#14222f'}" stroke="${dim}" stroke-width="1.2"/>`;
+ const axis=(b1,b2,c)=>{const [x1,y1]=proj(b1,G),[x2,y2]=proj(b2,G);return `<line x1="${px+x1}" y1="${gy+y1}" x2="${px+x2}" y2="${gy+y2}" stroke="${c}" stroke-width="1.4" opacity=".85"/>`};
+ s+=axis(0,180,NSc)+axis(90,270,EWc);
+ [[0,'N',NSc],[90,'E',EWc],[180,'S',NSc],[270,'W',EWc]].forEach(([b,l,c])=>{const [x,yy]=proj(b,G*1.34);s+=`<text x="${(px+x).toFixed(1)}" y="${(gy+yy+4).toFixed(1)}" font-size="12" font-weight="700" fill="${c}" text-anchor="middle">${l}</text>`});
+ // attachments -> back (behind pole) and front pieces
+ let back='',front='';
+ for(const a of atts){const c=col(a.type),yy=y(a.height),pw=pwAt(a.height),xe=px-pw/2,dirs=a.dirs||[],dash=a.type==='Strand - proposed';
+  if(a.type==='Crossarm'){
+   const n=a.n||3,th=dirs.length?BR[dirs[0]]:0,armB=(th+90)%180,[ax,ay]=proj(armB,40),tpos=n===1?[0]:n===2?[-.75,.75]:[-.85,0,.85],armc=light?'#7a5a2a':'#c9a46e',pc=col('Primary');
+   [1,-1].forEach(sg=>{const seg=`<line x1="${px}" y1="${yy.toFixed(1)}" x2="${(px+sg*ax).toFixed(1)}" y2="${(yy+sg*ay).toFixed(1)}" stroke="#000" stroke-opacity=".55" stroke-width="8" stroke-linecap="round"/><line x1="${px}" y1="${yy.toFixed(1)}" x2="${(px+sg*ax).toFixed(1)}" y2="${(yy+sg*ay).toFixed(1)}" stroke="${armc}" stroke-width="5.5" stroke-linecap="round"/>`;if(sg*ay<0)back+=seg;else front+=seg});
+   for(const t of tpos){const Px=px+t*ax,Py=yy+t*ay,isBack=t*ay<0;
+    let pin=`<line x1="${Px.toFixed(1)}" y1="${Py.toFixed(1)}" x2="${Px.toFixed(1)}" y2="${(Py-7).toFixed(1)}" stroke="${light?'#666':'#ccc'}" stroke-width="2.6"/><circle cx="${Px.toFixed(1)}" cy="${(Py-8).toFixed(1)}" r="3.4" fill="${pc}" stroke="#000" stroke-width=".7"/>`;
+    dirs.forEach(d=>{const st=stub(Px,Py-8,d,40,pc,false);(st.back?back:front);if(st.back)back+=st.svg;else front+=st.svg});
+    if(isBack)back+=pin;else front+=pin}
+  }else if(CABLE.has(a.type)&&dirs.length){
+   front+=`<circle cx="${px}" cy="${yy.toFixed(1)}" r="3.2" fill="${c}" stroke="#000" stroke-width=".7"/>`;
+   dirs.forEach(d=>{const st=stub(px,yy,d,46,c,dash);if(st.back)back+=st.svg;else front+=st.svg});
+  }else front+=glyph(a.type,xe,yy,c,bg);
+ }
+ s+=back;
+ s+=`<polygon points="${px-pw0/2},${gy} ${px+pw0/2},${gy} ${px+pw1/2},${y(ph)} ${px-pw1/2},${y(ph)}" fill="url(#pg)" stroke="${light?'#6b5232':'#c9a46e'}" stroke-width=".8"/>`;
+ s+=`<ellipse cx="${px}" cy="${y(ph)}" rx="${pw1/2}" ry="2.2" fill="#c9a46e" stroke="#6b5232" stroke-width=".6"/>`;
+ if(p.poleHeight)s+=`<text x="${px}" y="${y(ph)-8}" font-size="11" fill="${light?'#7a5a2a':'#c9a46e'}" text-anchor="middle">${esc(fmtH(p.poleHeight))}</text>`;
+ s+=front;
+ // labels on the right, with faint leader lines
  const L=atts.map(a=>({a,y:y(a.height),ly:y(a.height)}));
  for(let i=1;i<L.length;i++)if(L[i].ly-L[i-1].ly<15)L[i].ly=L[i-1].ly+15;
- L.forEach(o=>{const a=o.a,c=col(a.type),pw=pwAt(a.height),xe=px-pw/2,xr=px+pw/2;
-  s+=glyph(a.type,xe,o.y,c,bg);
-  s+=`<polyline points="${xr},${o.y} ${xr+14},${o.y} ${px+44},${o.y} ${px+56},${o.ly}" fill="none" stroke="${c}" stroke-width="1.2"/>`;
-  const own=a.owner?' ('+esc(a.owner.slice(0,10))+')':'',d=dirStr(a);
-  s+=`<text x="${px+60}" y="${o.ly+4}" font-size="12" fill="${c}" font-weight="700">${esc(fmtH(a.height))} <tspan fill="${ink}" font-weight="400">${esc(tinfo(a.type).s)}${own}</tspan>${d?` <tspan fill="${c}" font-weight="700">${d}</tspan>`:''}</text>`;
+ L.forEach(o=>{const a=o.a,c=col(a.type),pw=pwAt(a.height),xr=px+pw/2;
+  s+=`<polyline points="${xr+2},${o.y.toFixed(1)} ${px+72},${o.y.toFixed(1)} ${px+80},${o.ly.toFixed(1)}" fill="none" stroke="${leadc}" stroke-width=".9" stroke-dasharray="2 3"/>`;
+  const nm=tinfo(a.type).s+(a.type==='Crossarm'?' ×'+(a.n||3):''),own=a.owner?' ('+esc(a.owner.slice(0,10))+')':'',d=dirStr(a);
+  s+=`<text x="${px+84}" y="${(o.ly+4).toFixed(1)}" font-size="12" fill="${c}" font-weight="700">${esc(fmtH(a.height))} <tspan fill="${ink}" font-weight="400">${esc(nm)}${own}</tspan>${d?` <tspan fill="${c}" font-weight="700">${d}</tspan>`:''}</text>`;
  });
  for(let i=1;i<atts.length;i++){const y1=y(atts[i-1].height),y2=y(atts[i].height),g=atts[i-1].height-atts[i].height;
-  if(y2-y1<12)continue;s+=`<line x1="${px-80}" y1="${y1}" x2="${px-80}" y2="${y2}" stroke="${dim}" stroke-width="1"/><text x="${px-86}" y="${(y1+y2)/2+4}" font-size="11" fill="${sub}" text-anchor="end">${esc(fmtIn(g))}</text>`}
+  if(y2-y1<12)continue;s+=`<line x1="${px-80}" y1="${y1.toFixed(1)}" x2="${px-80}" y2="${y2.toFixed(1)}" stroke="${dim}" stroke-width="1"/><text x="${px-86}" y="${((y1+y2)/2+4).toFixed(1)}" font-size="11" fill="${sub}" text-anchor="end">${esc(fmtIn(g))}</text>`}
  return s+'</svg>';
 }
 
@@ -310,7 +343,7 @@ function renderPole(){
   <div><label>Utility</label><select id="f_ut">${UTILS.map(u=>`<option ${u===cur.utility?'selected':''}>${u}</option>`).join('')}</select></div></div>
   <div class="row"><div><label>Pole height</label><input id="f_ph" inputmode="text" value="${esc(fmtH(cur.poleHeight))}" placeholder="${unit==='ft'?"e.g. 40' or 40-6":'e.g. 12.2'}"></div>
   <div><label>Class / species</label><input id="f_cl" value="${esc(cur.poleClass)}" placeholder="e.g. 4 WRC"></div></div>
-  <div class="row"><div><label>Location</label><button id="gps" style="width:100%">${cur.lat!=null?cur.lat.toFixed(5)+', '+cur.lng.toFixed(5):'📍 Get GPS'}</button></div>
+  <div class="row"><div><label>Location</label><button id="gps" style="width:100%">${cur.lat!=null?cur.lat.toFixed(5)+', '+cur.lng.toFixed(5)+(cur.acc!=null?' (±'+Math.round(cur.acc)+' m)':''):'📍 Get GPS'}</button></div>
   <div><label>Date</label><input type="date" id="f_dt" value="${cur.date}"></div></div>
  </div>
  <div class="card"><h2>Photos</h2>
@@ -335,7 +368,10 @@ function renderPole(){
  bind('#f_cl',e=>{cur.poleClass=e.target.value;save()});
  bind('#f_dt',e=>{cur.date=e.target.value;save()});
  bind('#f_nt',e=>{cur.notes=e.target.value;save()});
- $('#gps').onclick=()=>{$('#gps').textContent='Locating…';navigator.geolocation.getCurrentPosition(pos=>{cur.lat=pos.coords.latitude;cur.lng=pos.coords.longitude;save();renderPole()},()=>{$('#gps').textContent='GPS unavailable'},{enableHighAccuracy:true,timeout:15000})};
+ $('#gps').onclick=()=>{const btn=$('#gps');let best=null,left=10,wid,tm,done=false;btn.textContent='Locating… 10 s';
+  const finish=()=>{if(done)return;done=true;navigator.geolocation.clearWatch(wid);clearInterval(tm);if(!best){btn.textContent='GPS unavailable';return}cur.lat=best.latitude;cur.lng=best.longitude;cur.acc=best.accuracy;save();renderPole()};
+  wid=navigator.geolocation.watchPosition(pos=>{if(!best||pos.coords.accuracy<best.accuracy)best=pos.coords;btn.textContent=`Locating… ±${Math.round(best.accuracy)} m`;if(best.accuracy<=3)finish()},()=>{if(!best)btn.textContent='GPS unavailable'},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+  tm=setInterval(()=>{if(--left<=0)finish()},1000)};
  const addPhotos=async files=>{for(const f of files){const blob=await compress(f),buf=await blob.arrayBuffer();cur.photos.push({id:uid(),blob,buf,type:'image/jpeg'})}await save();renderPole()};
  $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
  document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
@@ -351,17 +387,20 @@ function drawAtts(focusId){
  const list=[...cur.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
  box.innerHTML=list.length?list.map(a=>{const n=cur.attachments.indexOf(a)+1;const over=cur.poleHeight&&a.height>cur.poleHeight;
   return `<div class="attbox" data-id="${a.id}"><div class="att"><div class="dot" style="background:${tcolor(a.type)}">${a.photoId?n:''}</div>
-  <div class="nm">${esc(a.type)}<small><input class="own" value="${esc(a.owner)}" placeholder="owner / note" style="min-height:30px;padding:4px 8px;font-size:13px;font-weight:400;text-align:left;margin-top:3px"></small></div>
+  <div class="nm"><select class="tysel">${TYPES.map(t=>`<option value="${t.k}"${t.k===a.type?' selected':''}>${t.k}</option>`).join('')}</select><small><input class="own" value="${esc(a.owner)}" placeholder="owner / note" style="min-height:30px;padding:4px 8px;font-size:13px;font-weight:400;text-align:left;margin-top:3px"></small></div>
   <input class="ht ${over?'bad':''}" inputmode="text" value="${esc(fmtH(a.height))}" placeholder="${unit==='ft'?"23'6":'7.15'}">
   <button class="sm dng del">✕</button></div>
+  ${a.type==='Crossarm'?`<div class="dl">Primaries on this crossarm:</div><div class="dirs" style="grid-template-columns:repeat(3,1fr);margin-bottom:6px">${[1,2,3].map(n=>`<button class="dbtn nb${(a.n||3)===n?' on':''}" data-n="${n}">${n}</button>`).join('')}</div>`:''}
   <div class="dl">Cables leave toward:</div>
   <div class="dirs">${DIRS.map(d=>`<button class="dbtn${(a.dirs||[]).includes(d)?' on':''}" data-d="${d}">${d}</button>`).join('')}</div></div>`}).join(''):'<div class="empty" style="padding:10px">None yet</div>';
  box.querySelectorAll('.attbox').forEach(r=>{const a=cur.attachments.find(x=>x.id===r.dataset.id);
   r.querySelector('.ht').onchange=e=>{a.height=parseH(e.target.value);save();drawAtts();};
   r.querySelector('.ht').onkeydown=e=>{if(e.key==='Enter')e.target.blur()};
   r.querySelector('.own').onchange=e=>{a.owner=e.target.value;save();$('#diagram').innerHTML=diagram(cur)};
+  r.querySelector('.tysel').onchange=e=>{a.type=e.target.value;if(a.type==='Crossarm'&&!a.n)a.n=3;save();drawAtts()};
+  r.querySelectorAll('.nb').forEach(b=>b.onclick=()=>{a.n=+b.dataset.n;save();drawAtts()});
   r.querySelector('.del').onclick=()=>{cur.attachments=cur.attachments.filter(x=>x!==a);save();drawAtts()};
-  r.querySelectorAll('.dbtn').forEach(b=>b.onclick=()=>{a.dirs=a.dirs||[];const d=b.dataset.d,i=a.dirs.indexOf(d);i>=0?a.dirs.splice(i,1):a.dirs.push(d);save();b.classList.toggle('on');$('#diagram').innerHTML=diagram(cur)})});
+  r.querySelectorAll('.dbtn:not(.nb)').forEach(b=>b.onclick=()=>{a.dirs=a.dirs||[];const d=b.dataset.d,i=a.dirs.indexOf(d);i>=0?a.dirs.splice(i,1):a.dirs.push(d);save();b.classList.toggle('on');$('#diagram').innerHTML=diagram(cur)})});
  $('#diagram').innerHTML=diagram(cur);
  if(focusId){const i=box.querySelector(`[data-id="${focusId}"] .ht`);i&&i.focus()}
 }
@@ -486,12 +525,12 @@ $('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its arrows)?'))retur
 
 // ---------- CSV ----------
 function csv(poles){
- const rows=[['Project','Pole ID','Utility','Lat','Lng','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
+ const rows=[['Project','Pole ID','Utility','Lat','Lng','GPS accuracy (m)','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Primaries on arm','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
  const ftin=m=>{const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"'};
- poles.forEach(p=>{const base=[projName[p.projectId]||'',p.poleId,p.utility,p.lat??'',p.lng??'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
+ poles.forEach(p=>{const base=[projName[p.projectId]||'',p.poleId,p.utility,p.lat??'',p.lng??'',p.acc!=null?Math.round(p.acc):'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
   const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
-  if(!at.length)rows.push([...base,'','','','','','',p.notes]);
-  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirStr(a),a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',ph>=0?ph+1:'',p.notes])})});
+  if(!at.length)rows.push([...base,'','','','','','','',p.notes]);
+  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirStr(a),a.type==='Crossarm'?(a.n||3):'',a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',ph>=0?ph+1:'',p.notes])})});
  return '﻿'+rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
 }
 function dl(file){const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove()}
@@ -533,10 +572,10 @@ async function pgSummary(p){
  g.font='32px Arial';g.fillStyle='#444';
  g.fillText(`${p.utility}   |   ${p.date}`,PM,PM+76);
  g.fillText(`Pole height: ${fmtH(p.poleHeight)||'—'}      Class: ${p.poleClass||'—'}`,PM,PM+122);
- g.fillText('GPS: '+(p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6):'—'),PM,PM+168);
- g.drawImage(await svgImg(diagram(p,{light:true})),PM,270,560,812);
- g.strokeStyle='#bbb';g.lineWidth=2;g.strokeRect(PM,270,560,812);
- const x0=660,W=555,cw=[48,215,112,180];let y=270;
+ g.fillText('GPS: '+(p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6)+(p.acc!=null?'  (±'+Math.round(p.acc)+' m)':''):'—'),PM,PM+168);
+ g.drawImage(await svgImg(diagram(p,{light:true})),PM,270,650,857);
+ g.strokeStyle='#bbb';g.lineWidth=2;g.strokeRect(PM,270,650,857);
+ const x0=740,W=475,cw=[44,205,92,134];let y=270;
  g.fillStyle='#e8e8e8';g.fillRect(x0,y,W,46);g.fillStyle='#111';g.font='bold 26px Arial';
  let cx=x0+8;['#','Attachment','Dir','Height'].forEach((t,i)=>{g.fillText(t,cx,y+9);cx+=cw[i]});y+=46;
  for(const a of sortedAtts(p)){
@@ -546,39 +585,49 @@ async function pgSummary(p){
   cx=x0+8;g.fillStyle='#111';
   g.font='26px Arial';g.fillText(n,cx,y+10);cx+=cw[0];
   g.fillStyle=shade(tcolor(a.type),.55);g.font='26px Arial';g.fillText('■ ',cx-2,y+10);
-  g.fillStyle='#111';fit(g,a.type,cw[1]-34,26);g.fillText(a.type,cx+24,y+10);
+  g.fillStyle='#111';fit(g,dname(a),cw[1]-34,26);g.fillText(dname(a),cx+24,y+10);
   if(a.owner){g.fillStyle='#666';g.font='22px Arial';fit(g,a.owner,cw[1]-34,22);g.fillText(a.owner,cx+24,y+40)}
   cx+=cw[1];g.fillStyle='#111';fit(g,dirStr(a),cw[2]-10,26,'bold');g.fillText(dirStr(a),cx,y+10);
   cx+=cw[2];fit(g,fmtH(a.height),cw[3]-8,28,'bold');g.fillText(fmtH(a.height),cx,y+9);
   y+=rh;g.strokeStyle='#ccc';g.lineWidth=1;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+W,y);g.stroke();
  }
- if(p.notes){g.fillStyle='#111';g.font='bold 28px Arial';g.fillText('Notes',PM,1120);g.font='26px Arial';g.fillStyle='#333';wrap(g,p.notes,PM,1160,560,34)}
+ if(p.notes){g.fillStyle='#111';g.font='bold 28px Arial';g.fillText('Notes',PM,1160);g.font='26px Arial';g.fillStyle='#333';wrap(g,p.notes,PM,1200,PW-2*PM,34)}
  g.fillStyle='#888';g.font='20px Arial';g.fillText(`Pole ${p.poleId||''} · summary`,PM,PH-44);
  return c;
 }
 async function pgAnnot(p,i){
- const {c,g}=mkPage(),ph=p.photos[i];
- g.fillStyle='#111';g.font='bold 40px Arial';g.fillText(`Pole ${p.poleId||'—'} — Photo ${i+1}: attachments & heights`,PM,PM-10);
- const bmp=await decodeJpeg(await readBytes(ph.blob));
- const r=fitDraw(g,bmp,PM,110,PW-2*PM,1000);
- const on=p.attachments.map((a,idx)=>({a,n:idx+1})).filter(o=>o.a.photoId===ph.id);
- for(const o of on){const a=o.a,cx=r.dx+a.x*r.dw,cy=r.dy+a.y*r.dh;
-  const t=drawArrowC(g,cx,cy,a.ang??45,tcolor(a.type));
-  const txt=`${o.n}: ${tinfo(a.type).s}${a.height!=null?'  '+fmtH(a.height):''}${dirStr(a)?'  '+dirStr(a):''}`;g.font='bold 30px Arial';const tw=g.measureText(txt).width+22,th=42;
-  let bx,by;
-  if(Math.abs(t.c)<0.25){bx=t.tx-tw/2;by=t.s>0?t.ty-th-6:t.ty+6}else{bx=t.c>0?t.tx-tw-4:t.tx+4;by=t.ty-th/2}
-  bx=Math.min(r.dx+r.dw-tw,Math.max(r.dx,bx));by=Math.min(r.dy+r.dh-th,Math.max(r.dy,by));
-  g.fillStyle='rgba(0,0,0,.8)';g.fillRect(bx,by,tw,th);g.fillStyle=tcolor(a.type);g.fillRect(bx,by,7,th);
-  g.fillStyle='#fff';g.textBaseline='middle';g.fillText(txt,bx+16,by+th/2+1);g.textBaseline='top'}
- let ly=r.dy+r.dh+30;
- g.font='bold 28px Arial';g.fillStyle='#111';g.fillText('Attachments on this photo',PM,ly);ly+=44;
- const per=Math.max(1,Math.floor((PH-50-ly)/42));
- on.forEach((o,k)=>{const col=Math.floor(k/per),row=k%per,x=PM+col*590,y=ly+row*42;
-  g.fillStyle=tcolor(o.a.type);g.beginPath();g.arc(x+18,y+16,16,0,7);g.fill();
-  g.fillStyle='#000';g.font='bold 20px Arial';g.textAlign='center';g.fillText(String(o.n),x+18,y+6);g.textAlign='left';
-  const lab=`${o.a.type}${o.a.owner?' ('+o.a.owner+')':''}   ${dirStr(o.a)}`;
-  g.fillStyle='#111';fit(g,lab,380,26);g.fillText(lab,x+44,y+4);
-  g.font='bold 28px Arial';g.fillText(fmtH(o.a.height)||'—',x+440,y+3)});
+ const ph=p.photos[i],bmp=await decodeJpeg(await readBytes(ph.blob));
+ const LW=215,MG=40,TOP=100,BOT=50;
+ const dims=land=>{const W=land?1650:1275,H=land?1275:1650,aw=W-2*MG-2*LW,ah=H-TOP-BOT;return {W,H,aw,ah,s:Math.min(aw/bmp.width,ah/bmp.height)}};
+ const P=dims(false),Ld=dims(true),D=Ld.s>P.s?Ld:P;
+ const c=document.createElement('canvas');c.width=D.W;c.height=D.H;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,D.W,D.H);g.textBaseline='top';
+ g.fillStyle='#111';g.font='bold 38px Arial';g.fillText(`Pole ${p.poleId||'—'} — Photo ${i+1}: attachments & heights`,MG,28);
+ const dw=bmp.width*D.s,dh=bmp.height*D.s,dx=(D.W-dw)/2,dy=TOP;
+ g.drawImage(bmp,dx,dy,dw,dh);g.strokeStyle='#999';g.lineWidth=2;g.strokeRect(dx,dy,dw,dh);
+ const on=p.attachments.map((a,idx)=>({a,n:idx+1,tx:dx+a.x*dw,ty:dy+a.y*dh})).filter(o=>o.a.photoId===ph.id);
+ on.forEach(o=>o.side=o.tx<dx+dw/2?'L':'R');
+ const boxW=LW-20,gap=8;
+ for(const side of ['L','R']){
+  const arr=on.filter(o=>o.side===side).sort((u,v)=>u.ty-v.ty);if(!arr.length)continue;
+  const h=Math.max(46,Math.min(66,(dh-gap*(arr.length-1))/arr.length));
+  arr.forEach(o=>{o.h=h;o.ly=o.ty-h/2});
+  arr.forEach((o,k)=>{if(k)o.ly=Math.max(o.ly,arr[k-1].ly+h+gap);if(o.ly<dy)o.ly=dy});
+  const bot=dy+dh;if(arr[arr.length-1].ly+h>bot)arr[arr.length-1].ly=bot-h;
+  for(let k=arr.length-2;k>=0;k--)arr[k].ly=Math.min(arr[k].ly,arr[k+1].ly-h-gap);
+  arr.forEach(o=>{o.bx=side==='L'?dx-14-boxW:dx+dw+14;o.ex=side==='L'?o.bx+boxW:o.bx;o.ey=o.ly+h/2});
+ }
+ // leaders first, then label boxes on top
+ for(const o of on){const col=tcolor(o.a.type),vx=o.tx-o.ex,vy=o.ty-o.ey,len=Math.hypot(vx,vy)||1,ux=vx/len,uy=vy/len,hl=30,hw=12;
+  const bx2=o.tx-ux*(hl-4),by2=o.ty-uy*(hl-4);
+  g.lineCap='round';g.lineJoin='round';g.beginPath();g.moveTo(o.ex,o.ey);g.lineTo(bx2,by2);
+  g.strokeStyle='#fff';g.lineWidth=8;g.stroke();g.strokeStyle='#000';g.lineWidth=5.5;g.stroke();g.strokeStyle=col;g.lineWidth=3;g.stroke();
+  const px=-uy,py=ux;g.beginPath();g.moveTo(o.tx,o.ty);g.lineTo(o.tx-ux*hl+px*hw,o.ty-uy*hl+py*hw);g.lineTo(o.tx-ux*hl-px*hw,o.ty-uy*hl-py*hw);g.closePath();
+  g.fillStyle=col;g.strokeStyle='#000';g.lineWidth=3;g.fill();g.stroke()}
+ for(const o of on){const a=o.a,col=tcolor(a.type);
+  g.fillStyle='#fff';g.fillRect(o.bx,o.ly,boxW,o.h);g.strokeStyle='#222';g.lineWidth=2;g.strokeRect(o.bx,o.ly,boxW,o.h);
+  g.fillStyle=col;g.fillRect(o.bx,o.ly,10,o.h);g.strokeStyle='#222';g.lineWidth=2;g.strokeRect(o.bx,o.ly,10,o.h);
+  g.fillStyle='#111';const l1=`${o.n}  ${tinfo(a.type).s}${a.type==='Crossarm'?' ×'+(a.n||3):''}${a.owner?' ('+a.owner+')':''}`;fit(g,l1,boxW-24,24,'bold');g.fillText(l1,o.bx+18,o.ly+o.h*0.12);
+  const l2=`${fmtH(a.height)||'—'}${dirStr(a)?'   '+dirStr(a):''}`;fit(g,l2,boxW-24,30,'bold');g.fillText(l2,o.bx+18,o.ly+o.h*0.52)}
  bmp.close&&bmp.close();return c;
 }
 async function pgCovers(proj,poles){
@@ -600,7 +649,7 @@ async function pgCovers(proj,poles){
 }
 async function pgFromCanvas(c){
  const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',.86));const bytes=new Uint8Array(await bl.arrayBuffer());const iw=c.width,ih=c.height;c.width=c.height=0;
- return {W:612,H:792,bytes,iw,ih,content:'q 612 0 0 792 0 0 cm /Im0 Do Q'};
+ const land=iw>ih,W=land?792:612,H=land?612:792;return {W,H,bytes,iw,ih,content:`q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`};
 }
 const pdfStr=t=>String(t).replace(/[^\x20-\x7E]/g,'?').replace(/([\\()])/g,'\\$1');
 async function pgFromPhoto(p,i){
