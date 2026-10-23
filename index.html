@@ -107,7 +107,7 @@ const shade=(hex,f)=>'#'+[1,3,5].map(i=>Math.round(parseInt(hex.substr(i,2),16)*
 const dname=a=>a.type==='Crossarm'?`Crossarm (${a.n||3} pri)`:a.type;
 const CABLE=new Set(['Primary','Neutral','Secondary','Telecom - existing','Fibre - existing','Strand - existing','Strand - proposed','Guy / anchor','Other']);
 const BR={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
-const VIEW=30*Math.PI/180; // viewer stands south-south-west of the pole, looking north-north-east
+const VIEW=20*Math.PI/180; // viewer stands just west of due south, looking north: north points up/away, east points right
 const proj=(b,len)=>{const r=b*Math.PI/180,E=Math.sin(r),N=Math.cos(r);return [1.1*(E*Math.cos(VIEW)-N*Math.sin(VIEW))*len,-0.7*(E*Math.sin(VIEW)+N*Math.cos(VIEW))*len]};
 const dirStr=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)).join(',');
 const $=s=>document.querySelector(s);
@@ -180,22 +180,25 @@ async function compress(file){
 }
 
 // ---------- diagram (SVG) ----------
-function glyph(k,xe,y,c,bg){
+function glyph(k,px,pw,y,c,bg,d){
+ // fittings point the way you chose (default: toward the left of the sketch). Returns {svg,back}
+ let ux=-1,uy=0;if(d){const [vx,vy]=proj(BR[d],1),m=Math.hypot(vx,vy)||1;ux=vx/m;uy=vy/m}
+ const xe=px-pw/2,at=l=>[px+ux*l,y+uy*l],f=v=>v.toFixed(1),back=!!d&&uy<-0.05;
  switch(k){
- case 'Street light':
-  return `<polyline points="${xe},${y} ${xe-12},${y-9} ${xe-32},${y-9}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`+
-   `<path d="M${xe-56},${y-8} Q${xe-41},${y-24} ${xe-26},${y-8} Z" fill="${c}"/><rect x="${xe-54}" y="${y-8}" width="26" height="3" fill="${c}"/>`+
-   `<g stroke="${c}" stroke-width="1.5" opacity=".75"><line x1="${xe-50}" y1="${y-2}" x2="${xe-54}" y2="${y+8}"/><line x1="${xe-41}" y1="${y-2}" x2="${xe-41}" y2="${y+9}"/><line x1="${xe-32}" y1="${y-2}" x2="${xe-28}" y2="${y+8}"/></g>`;
- case 'Power supply':
-  return `<rect x="${xe-28}" y="${y-9}" width="26" height="18" rx="2" fill="${bg}" stroke="${c}" stroke-width="2"/><text x="${xe-15}" y="${y+4}" font-size="10" font-weight="700" fill="${c}" text-anchor="middle">PS</text>`;
- case 'Fuse':
-  return `<line x1="${xe}" y1="${y}" x2="${xe-18}" y2="${y}" stroke="${c}" stroke-width="3" stroke-linecap="round"/><rect x="${xe-22}" y="${y}" width="8" height="21" rx="3" fill="${c}" transform="rotate(14 ${xe-18} ${y})"/><circle cx="${xe-18}" cy="${y}" r="3.2" fill="${bg}" stroke="${c}" stroke-width="1.5"/>`;
- case 'Bracket':
-  return `<polyline points="${xe},${y} ${xe-22},${y} ${xe-22},${y+14}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${xe-22}" cy="${y+17}" r="3.5" fill="${c}"/>`;
- case 'Transformer':
-  return `<rect x="${xe-26}" y="${y-5}" width="22" height="30" rx="5" fill="${c}" opacity=".92"/><line x1="${xe-4}" y1="${y}" x2="${xe}" y2="${y}" stroke="${c}" stroke-width="3"/>`;
+ case 'Street light':{const [ex,ey]=at(40),hy=ey-7;
+  return {back,svg:`<polyline points="${px},${f(y)} ${f(px+ux*20)},${f(y+uy*20-5)} ${f(ex)},${f(hy)}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`+
+   `<path d="M${f(ex-14)},${f(hy)} Q${f(ex)},${f(hy-16)} ${f(ex+14)},${f(hy)} Z" fill="${c}"/><rect x="${f(ex-13)}" y="${f(hy)}" width="26" height="3" fill="${c}"/>`+
+   `<g stroke="${c}" stroke-width="1.5" opacity=".75"><line x1="${f(ex-9)}" y1="${f(hy+6)}" x2="${f(ex-12)}" y2="${f(hy+15)}"/><line x1="${f(ex)}" y1="${f(hy+6)}" x2="${f(ex)}" y2="${f(hy+16)}"/><line x1="${f(ex+9)}" y1="${f(hy+6)}" x2="${f(ex+12)}" y2="${f(hy+15)}"/></g>`}}
+ case 'Power supply':{const [ex,ey]=at(26);
+  return {back,svg:`<line x1="${px}" y1="${f(y)}" x2="${f(ex)}" y2="${f(ey)}" stroke="${c}" stroke-width="2"/><rect x="${f(ex-13)}" y="${f(ey-9)}" width="26" height="18" rx="2" fill="${bg}" stroke="${c}" stroke-width="2"/><text x="${f(ex)}" y="${f(ey+4)}" font-size="10" font-weight="700" fill="${c}" text-anchor="middle">PS</text>`}}
+ case 'Fuse':{const [ex,ey]=at(20);
+  return {back,svg:`<line x1="${px}" y1="${f(y)}" x2="${f(ex)}" y2="${f(ey)}" stroke="${c}" stroke-width="3" stroke-linecap="round"/><rect x="${f(ex-4)}" y="${f(ey)}" width="8" height="21" rx="3" fill="${c}" transform="rotate(14 ${f(ex)} ${f(ey)})"/><circle cx="${f(ex)}" cy="${f(ey)}" r="3.2" fill="${bg}" stroke="${c}" stroke-width="1.5"/>`}}
+ case 'Bracket':{const [ex,ey]=at(22);
+  return {back,svg:`<polyline points="${px},${f(y)} ${f(ex)},${f(ey)} ${f(ex)},${f(ey+14)}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${f(ex)}" cy="${f(ey+17)}" r="3.5" fill="${c}"/>`}}
+ case 'Transformer':{const [ex,ey]=at(24);
+  return {back,svg:`<line x1="${px}" y1="${f(y)}" x2="${f(ex)}" y2="${f(ey)}" stroke="${c}" stroke-width="3"/><rect x="${f(ex-11)}" y="${f(ey-5)}" width="22" height="30" rx="5" fill="${c}" opacity=".92"/>`}}
  default:
-  return `<line x1="${xe-14}" y1="${y}" x2="${xe+0}" y2="${y}" stroke="${c}" stroke-width="4" stroke-linecap="round"${k==='Strand - proposed'?' stroke-dasharray="6 3"':''}/>`;
+  return {back:false,svg:`<line x1="${xe-14}" y1="${y}" x2="${xe}" y2="${y}" stroke="${c}" stroke-width="4" stroke-linecap="round"${k==='Strand - proposed'?' stroke-dasharray="6 3"':''}/>`};
  }
 }
 function diagram(p,o={}){
@@ -218,7 +221,7 @@ function diagram(p,o={}){
  s+=`<ellipse cx="${px}" cy="${gy}" rx="${(1.1*G).toFixed(1)}" ry="${(0.7*G).toFixed(1)}" fill="${light?'#f3efe6':'#14222f'}" stroke="${dim}" stroke-width="1.2"/>`;
  const axis=(b1,b2,c)=>{const [x1,y1]=proj(b1,G),[x2,y2]=proj(b2,G);return `<line x1="${px+x1}" y1="${gy+y1}" x2="${px+x2}" y2="${gy+y2}" stroke="${c}" stroke-width="1.4" opacity=".85"/>`};
  s+=axis(0,180,NSc)+axis(90,270,EWc);
- [[0,'N',NSc],[90,'E',EWc],[180,'S',NSc],[270,'W',EWc]].forEach(([b,l,c])=>{const [x,yy]=proj(b,G*1.34);s+=`<text x="${(px+x).toFixed(1)}" y="${(gy+yy+4).toFixed(1)}" font-size="12" font-weight="700" fill="${c}" text-anchor="middle">${l}</text>`});
+ [[0,'N',NSc],[90,'E',EWc],[180,'S',NSc],[270,'W',EWc]].forEach(([b,l,c])=>{const [x,yy]=proj(b,G*1.34);s+=`<text x="${(px+x).toFixed(1)}" y="${(gy+yy+4).toFixed(1)}" font-size="${l==='N'?15:12}" font-weight="700" fill="${c}" text-anchor="middle">${l}</text>`});
  // attachments -> back (behind pole) and front pieces
  let back='',front='';
  for(const a of atts){const c=col(a.type),yy=y(a.height),pw=pwAt(a.height),xe=px-pw/2,dirs=a.dirs||[],dash=a.type==='Strand - proposed';
@@ -232,7 +235,7 @@ function diagram(p,o={}){
   }else if(CABLE.has(a.type)&&dirs.length){
    front+=`<circle cx="${px}" cy="${yy.toFixed(1)}" r="3.2" fill="${c}" stroke="#000" stroke-width=".7"/>`;
    dirs.forEach(d=>{const st=stub(px,yy,d,46,c,dash);if(st.back)back+=st.svg;else front+=st.svg});
-  }else front+=glyph(a.type,xe,yy,c,bg);
+  }else{const gl=glyph(a.type,px,pw,yy,c,bg,dirs[0]);if(gl.back)back+=gl.svg;else front+=gl.svg}
  }
  s+=back;
  s+=`<polygon points="${px-pw0/2},${gy} ${px+pw0/2},${gy} ${px+pw1/2},${y(ph)} ${px-pw1/2},${y(ph)}" fill="url(#pg)" stroke="${light?'#6b5232':'#c9a46e'}" stroke-width=".8"/>`;
