@@ -107,8 +107,8 @@ const shade=(hex,f)=>'#'+[1,3,5].map(i=>Math.round(parseInt(hex.substr(i,2),16)*
 const dname=a=>a.type==='Crossarm'?`Crossarm (${a.n||3} pri)`:a.type;
 const CABLE=new Set(['Primary','Neutral','Secondary','Telecom - existing','Fibre - existing','Strand - existing','Strand - proposed','Guy / anchor','Other']);
 const BR={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
-const VIEW=20*Math.PI/180; // viewer stands just west of due south, looking north: north points up/away, east points right
-const proj=(b,len)=>{const r=b*Math.PI/180,E=Math.sin(r),N=Math.cos(r);return [1.1*(E*Math.cos(VIEW)-N*Math.sin(VIEW))*len,-0.7*(E*Math.sin(VIEW)+N*Math.cos(VIEW))*len]};
+let VIEWD=20;const projView={}; // sketch viewing angle (degrees), saved per project
+const proj=(b,len)=>{const V=VIEWD*Math.PI/180,r=b*Math.PI/180,E=Math.sin(r),N=Math.cos(r);return [1.1*(E*Math.cos(V)-N*Math.sin(V))*len,-0.7*(E*Math.sin(V)+N*Math.cos(V))*len]};
 const dirStr=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)).join(',');
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -202,6 +202,7 @@ function glyph(k,px,pw,y,c,bg,d){
  }
 }
 function diagram(p,o={}){
+ VIEWD=projView[p.projectId]??20;
  const light=!!o.light,w=440,h=580;
  const bg=light?'#ffffff':'#0b1620',ink=light?'#222':'#cfd8df',sub=light?'#444':'#9db3c4',dim=light?'#99a':'#52697c',leadc=light?'#888':'#6d8497';
  const NSc=light?'#2a6fa3':'#6fb3d9',EWc=light?'#b8741a':'#e8a04a';
@@ -273,7 +274,7 @@ let pTab='active',pSelMode=false,pSet=new Set();
 async function showProjects(){
  view='projects';cur=null;curProj=null;setHeader('Pole Survey',false);
  const [projs,poles]=await Promise.all([getAll('projects'),getAll('poles')]);
- projs.forEach(p=>projName[p.id]=p.name);
+ projs.forEach(p=>{projName[p.id]=p.name;projView[p.id]=p.view});
  projs.sort((a,b)=>b.updated-a.updated);
  const act=projs.filter(p=>!p.archived),arc=projs.filter(p=>p.archived),ps=pTab==='active'?act:arc;
  pSet=new Set([...pSet].filter(id=>ps.some(p=>p.id===id)));
@@ -304,7 +305,7 @@ async function showProjects(){
 // ---------- screen 2: one project's poles ----------
 let lTab='active',lSelMode=false,lSet=new Set();
 async function showProject(){
- view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;
+ view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;projView[curProj.id]=curProj.view;
  const all=(await getAll('poles')).filter(p=>p.projectId===curProj.id).sort((a,b)=>b.updated-a.updated);
  const act=all.filter(p=>!p.archived),arc=all.filter(p=>p.archived),ps=lTab==='active'?act:arc;
  lSet=new Set([...lSet].filter(id=>ps.some(p=>p.id===id)));
@@ -360,7 +361,9 @@ function renderPole(){
   <div class="chips" id="quick">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">+ ${t.k}</button>`).join('')}</div>
   <div id="atts" style="margin-top:14px"></div>
  </div>
- <div class="card"><h2>Diagram</h2><div id="diagram"></div></div>
+ <div class="card"><h2>Diagram</h2><div id="diagram"></div>
+  <div class="row" style="margin-top:12px;align-items:center"><button class="sm" id="vl">⟲ Turn compass</button><button class="sm" id="vr">Turn compass ⟳</button></div>
+  <div id="vlab" style="color:var(--mut);font-size:12px;margin-top:8px;text-align:center"></div></div>
  <div class="card"><h2>Notes</h2><textarea id="f_nt" rows="3" placeholder="Condition, obstructions, span lengths, traffic control…">${esc(cur.notes)}</textarea></div>
  <div class="card"><div class="bar3"><button id="arcp" style="flex:1">${cur.archived?'Restore to active':'Archive this pole'}</button><button class="dng" id="delp" style="flex:1">Delete</button></div></div>`;
  bar.style.display='flex';bar.innerHTML='<button class="pri" id="exb">Export this pole (CSV + PDF)</button>';
@@ -382,6 +385,9 @@ function renderPole(){
  $('#arcp').onclick=async()=>{cur.archived=!cur.archived;await save();lTab=cur.archived?'archived':'active';showProject()};
  $('#delp').onclick=async()=>{if(confirm('Delete this pole and its photos?')){await delOne('poles',cur.id);showProject()}};
  $('#exb').onclick=()=>exportDialog({base:fname(),poles:[cur],project:null});
+ const turn=d=>{if(!curProj)return;curProj.view=(((curProj.view??20)+d)%360+360)%360;projView[curProj.id]=curProj.view;putOne('projects',curProj,true);$('#diagram').innerHTML=diagram(cur);lab()};
+ const lab=()=>{$('#vlab').innerHTML=`Viewing angle ${curProj?(curProj.view??20):20}° — turns the sketch for <b>every pole in this project</b> (also in the PDF). <a href="#" id="vreset" style="color:var(--acc)">Reset</a>`;$('#vreset').onclick=e=>{e.preventDefault();turn(20-(curProj.view??20))}};
+ $('#vl').onclick=()=>turn(15);$('#vr').onclick=()=>turn(-15);lab();
  drawAtts();
 }
 
