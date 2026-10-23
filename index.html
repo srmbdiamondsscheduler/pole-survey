@@ -101,7 +101,7 @@ const TYPES=[
  {k:'Power supply',s:'Pwr supply',c:'#ff7eb6'},{k:'Fuse',s:'Fuse',c:'#d6ff6b'},{k:'Bracket',s:'Bracket',c:'#b5a7ff'},
  {k:'Telecom - existing',s:'Telecom',c:'#6fb3d9'},{k:'Fibre - existing',s:'Fibre',c:'#4cc38a'},
  {k:'Strand - existing',s:'Strand',c:'#5b9ec9'},{k:'Strand - proposed',s:'Strand NEW',c:'#d9a441'},
- {k:'Guy / anchor',s:'Guy',c:'#a0856c'},{k:'Riser',s:'Riser',c:'#7bd0c1'},{k:'Other',s:'Other',c:'#cfcfcf'}];
+ {k:'Guy / anchor',s:'Anchor',c:'#a0856c'},{k:'Riser',s:'Riser',c:'#7bd0c1'},{k:'Other',s:'Other',c:'#cfcfcf'}];
 const DIRS=['N','NE','E','SE','S','SW','W','NW'];
 const UTILS=['Manitoba Hydro','Synergy North','Hydro One','Bell','Other'];
 const tinfo=k=>TYPES.find(t=>t.k===k)||TYPES[TYPES.length-1];
@@ -112,11 +112,12 @@ const acol=a=>PAL[(a.ci??0)%PAL.length];
 function ensureColors(p){const used=new Set(p.attachments.filter(a=>a.ci!=null).map(a=>a.ci));let ch=false;
  for(const a of p.attachments)if(a.ci==null){let i=0;while(used.has(i)&&i<PAL.length)i++;if(i>=PAL.length)i=p.attachments.indexOf(a)%PAL.length;a.ci=i;used.add(i);ch=true}return ch}
 const dname=a=>a.type==='Crossarm'?`Crossarm (${a.n||3} pri)`:a.type;
-const CABLE=new Set(['Primary','Neutral','Secondary','Telecom - existing','Fibre - existing','Strand - existing','Strand - proposed','Guy / anchor','Other']);
+const CABLE=new Set(['Primary','Neutral','Secondary','Telecom - existing','Fibre - existing','Strand - existing','Strand - proposed','Other']);
 const BR={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
 let VIEWD=20;const projView={}; // sketch viewing angle (degrees), saved per project
 const proj=(b,len)=>{const V=VIEWD*Math.PI/180,r=b*Math.PI/180,E=Math.sin(r),N=Math.cos(r);return [1.1*(E*Math.cos(V)-N*Math.sin(V))*len,-0.7*(E*Math.sin(V)+N*Math.cos(V))*len]};
-const dirStr=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)).join(',');
+const dirsOnly=a=>(a.dirs||[]).slice().sort((x,y)=>DIRS.indexOf(x)-DIRS.indexOf(y)).join(',');
+const dirStr=a=>dirsOnly(a)+(a.type==='Guy / anchor'&&a.dist!=null?(dirsOnly(a)?' · ':'')+fmtH(a.dist):'');
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -222,8 +223,10 @@ function diagram(p,o={}){
  let b0=0,top=Math.max(p.poleHeight||0,...atts.map(a=>a.height),3)*1.04;
  const zoomed=!!p.zoom&&atts.length>1;
  if(zoomed){const lo=atts[atts.length-1].height,hi=atts[0].height,pad=Math.max((hi-lo)*0.3,0.6);b0=Math.max(0,lo-pad);top=Math.min(hi+pad,Math.max(ph,hi)+0.3);if(top-b0<1)top=b0+1}
+ const maxD=Math.max(0,...atts.filter(a=>a.type==='Guy / anchor'&&a.dist!=null&&(a.dirs||[]).length).map(a=>a.dist));
  const padT=30,padB=62,gy=h-padB,sc=(gy-padT)/(top-b0),px=170,pw0=16,pw1=9,G=46;
  const y=m=>gy-(m-b0)*sc;
+ const hs=maxD>0?Math.min(sc,88/maxD):sc,notScale=maxD>0&&hs<sc-1e-6&&b0===0;
  const cxC=b0>0?84:px,cyC=b0>0?gy+4:gy; // compass sits under the pole, or in the corner when zoomed in
  const pwAt=m=>pw0-(pw0-pw1)*Math.min(1,m/ph);
  const stub=(x0,y0,d,len,c,dash)=>{const [dx,dy]=proj(BR[d],len),x1=x0+dx,y1=y0+dy,an=Math.atan2(dy,dx),ca=Math.cos(an),sa=Math.sin(an),ah=6,aw=3.2;
@@ -248,6 +251,20 @@ function diagram(p,o={}){
     let pin=`<line x1="${Px.toFixed(1)}" y1="${Py.toFixed(1)}" x2="${Px.toFixed(1)}" y2="${(Py-7).toFixed(1)}" stroke="${light?'#666':'#ccc'}" stroke-width="2.6"/><circle cx="${Px.toFixed(1)}" cy="${(Py-8).toFixed(1)}" r="3.4" fill="${pc}" stroke="#000" stroke-width=".7"/>`;
     dirs.forEach(d=>{const st=stub(Px,Py-8,d,40,pc,false);(st.back?back:front);if(st.back)back+=st.svg;else front+=st.svg});
     if(isBack)back+=pin;else front+=pin}
+  }else if(a.type==='Guy / anchor'){
+   front+=`<circle cx="${px}" cy="${yy.toFixed(1)}" r="3.4" fill="${c}" stroke="#000" stroke-width=".7"/>`;
+   const d0=dirs[0];
+   if(d0&&b0===0){
+    const dl=a.dist!=null?a.dist:maxD||1,[ox,oy]=proj(BR[d0],dl*hs),gx=px+ox,gz=gy+oy;
+    let g=`<line x1="${px}" y1="${yy.toFixed(1)}" x2="${gx.toFixed(1)}" y2="${gz.toFixed(1)}" stroke="${c}" stroke-width="2.4" stroke-linecap="round"/>`;
+    g+=`<line x1="${px}" y1="${gy}" x2="${gx.toFixed(1)}" y2="${gz.toFixed(1)}" stroke="${dim}" stroke-width="1.1" stroke-dasharray="4 3"/>`;
+    if(a.dist!=null)g+=`<text x="${((px+gx)/2).toFixed(1)}" y="${((gy+gz)/2+(oy>=0?13:-6)).toFixed(1)}" font-size="11" font-weight="700" fill="${c}" stroke="${bg}" stroke-width="2.6" paint-order="stroke" text-anchor="middle">${esc(fmtH(a.dist))}</text>`;
+    const ax=gx+(ox>=0?13:-13),ay=gz+15; // arrow pointing at the spot where the anchor enters the ground
+    const an=Math.atan2(gz-ay,gx-ax),ca=Math.cos(an),sa=Math.sin(an);
+    g+=`<line x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${(gx-ca*6).toFixed(1)}" y2="${(gz-sa*6).toFixed(1)}" stroke="${ink}" stroke-width="2" stroke-linecap="round"/><polygon points="${gx.toFixed(1)},${gz.toFixed(1)} ${(gx-ca*8+sa*4).toFixed(1)},${(gz-sa*8-ca*4).toFixed(1)} ${(gx-ca*8-sa*4).toFixed(1)},${(gz-sa*8+ca*4).toFixed(1)}" fill="${ink}"/>`;
+    g+=`<circle cx="${gx.toFixed(1)}" cy="${gz.toFixed(1)}" r="3.4" fill="${c}" stroke="#000" stroke-width=".8"/><text x="${(ax+(ox>=0?4:-4)).toFixed(1)}" y="${(ay+11).toFixed(1)}" font-size="10" font-weight="700" fill="${c}" stroke="${bg}" stroke-width="2.6" paint-order="stroke" text-anchor="${ox>=0?'start':'end'}">${d0} anchor</text>`;
+    if(oy<0)back+=g;else front+=g;
+   }else if(d0){const st=stub(px,yy,d0,46,c,false);if(st.back)back+=st.svg;else front+=st.svg}
   }else if(CABLE.has(a.type)&&dirs.length){
    front+=`<circle cx="${px}" cy="${yy.toFixed(1)}" r="3.2" fill="${c}" stroke="#000" stroke-width=".7"/>`;
    dirs.forEach(d=>{const st=stub(px,yy,d,46,c,dash);if(st.back)back+=st.svg;else front+=st.svg});
@@ -271,6 +288,7 @@ function diagram(p,o={}){
  });
  for(let i=1;i<atts.length;i++){const y1=y(atts[i-1].height),y2=y(atts[i].height),g=atts[i-1].height-atts[i].height;
   if(y2-y1<12)continue;s+=`<line x1="${px-80}" y1="${y1.toFixed(1)}" x2="${px-80}" y2="${y2.toFixed(1)}" stroke="${dim}" stroke-width="1"/><text x="${px-86}" y="${((y1+y2)/2+4).toFixed(1)}" font-size="11" fill="${sub}" text-anchor="end">${esc(fmtIn(g))}</text>`}
+  if(notScale)s+=`<text x="8" y="${h-8}" font-size="10" fill="${sub}">Anchor distances shortened — labels show true distance</text>`;
   if(zoomed)s+=`<text x="${w-8}" y="${h-8}" font-size="10" fill="${sub}" text-anchor="end">Zoomed to attachments — not full pole height</text>`;
  return s+'</svg>';
 }
@@ -427,19 +445,24 @@ function drawAtts(focusId){
   <input class="ht ${over?'bad':''}" inputmode="${distoMode?'none':'text'}" value="${esc(fmtH(a.height))}" placeholder="${unit==='ft'?"23'6":'7.15'}">
   <button class="sm dng del">✕</button></div>
   ${a.type==='Crossarm'?`<div class="dl">Primaries on this crossarm:</div><div class="dirs" style="grid-template-columns:repeat(3,1fr);margin-bottom:6px">${[1,2,3].map(n=>`<button class="dbtn nb${(a.n||3)===n?' on':''}" data-n="${n}">${n}</button>`).join('')}</div>`:''}
-  <div class="dl">Cables leave toward:</div>
+  ${a.type==='Guy / anchor'?`<div class="dl">Anchor height is the box above. Distance from pole base to where the anchor goes into the ground:</div><input class="ht dist" inputmode="${distoMode?'none':'text'}" value="${esc(fmtH(a.dist))}" placeholder="${unit==='ft'?"12'0":'3.7'}" style="margin-bottom:6px">`:''}
+  <div class="dl">${a.type==='Guy / anchor'?'Anchor lies toward:':'Cables leave toward:'}</div>
   <div class="dirs">${DIRS.map(d=>`<button class="dbtn${(a.dirs||[]).includes(d)?' on':''}" data-d="${d}">${d}</button>`).join('')}</div></div>`}).join(''):'<div class="empty" style="padding:10px">None yet</div>';
  box.querySelectorAll('.attbox').forEach(r=>{const a=cur.attachments.find(x=>x.id===r.dataset.id);
   const ht=r.querySelector('.ht');let tmr;
   ht.onchange=()=>{clearTimeout(tmr);const v=parseH(ht.value);a.height=v;save();drawAtts();if(distoMode&&v!=null){const nx=focusNextEmpty();toast(`✓ ${a.type} = ${fmtH(v)}${nx?'  —  next: '+(cur.attachments.find(x=>x.id===nx.closest('.attbox').dataset.id)||{}).type:''}`)}};
   ht.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();ht.blur()}};
   if(distoMode)ht.oninput=()=>{clearTimeout(tmr);if(parseH(ht.value)!=null)tmr=setTimeout(()=>ht.blur(),700)};
+  const dI=r.querySelector('.dist');
+  if(dI){let t2;dI.onchange=()=>{clearTimeout(t2);const v=parseH(dI.value);a.dist=v;save();drawAtts();if(distoMode&&v!=null){const nx=focusNextEmpty();toast(`✓ Anchor distance = ${fmtH(v)}`)}};
+   dI.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();dI.blur()}};
+   if(distoMode)dI.oninput=()=>{clearTimeout(t2);if(parseH(dI.value)!=null)t2=setTimeout(()=>dI.blur(),700)}}
   r.querySelector('.own').onchange=e=>{a.owner=e.target.value;save();$('#diagram').innerHTML=diagram(cur)};
   r.querySelector('.dot').onclick=()=>{a.ci=((a.ci??0)+1)%PAL.length;save();drawAtts()};
   r.querySelector('.tysel').onchange=e=>{a.type=e.target.value;if(a.type==='Crossarm'&&!a.n)a.n=3;save();drawAtts()};
   r.querySelectorAll('.nb').forEach(b=>b.onclick=()=>{a.n=+b.dataset.n;save();drawAtts()});
   r.querySelector('.del').onclick=()=>{tombA(a.id);cur.attachments=cur.attachments.filter(x=>x!==a);save();drawAtts()};
-  r.querySelectorAll('.dbtn:not(.nb)').forEach(b=>b.onclick=()=>{a.dirs=a.dirs||[];const d=b.dataset.d,i=a.dirs.indexOf(d);i>=0?a.dirs.splice(i,1):a.dirs.push(d);save();b.classList.toggle('on');$('#diagram').innerHTML=diagram(cur)})});
+  r.querySelectorAll('.dbtn:not(.nb)').forEach(b=>b.onclick=()=>{a.dirs=a.dirs||[];const d=b.dataset.d,i=a.dirs.indexOf(d);if(a.type==='Guy / anchor'){a.dirs=i>=0?[]:[d];save();drawAtts();return}i>=0?a.dirs.splice(i,1):a.dirs.push(d);save();b.classList.toggle('on');$('#diagram').innerHTML=diagram(cur)})});
  $('#diagram').innerHTML=diagram(cur);
  if(focusId){const i=box.querySelector(`[data-id="${focusId}"] .ht`);i&&i.focus()}
 }
@@ -564,12 +587,12 @@ $('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its arrows)?'))retur
 
 // ---------- CSV ----------
 function csv(poles){
- const rows=[['Project','Pole ID','Utility','Lat','Lng','GPS accuracy (m)','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Primaries on arm','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
+ const rows=[['Project','Pole ID','Utility','Lat','Lng','GPS accuracy (m)','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Primaries on arm','Owner/Note','Height (m)','Height (ft-in)','Anchor distance from pole base (m)','Photo #','Pole notes']];
  const ftin=m=>{const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"'};
  poles.forEach(p=>{const base=[projName[p.projectId]||'',p.poleId,p.utility,p.lat??'',p.lng??'',p.acc!=null?Math.round(p.acc):'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
   const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
-  if(!at.length)rows.push([...base,'','','','','','','',p.notes]);
-  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirStr(a),a.type==='Crossarm'?(a.n||3):'',a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',ph>=0?ph+1:'',p.notes])})});
+  if(!at.length)rows.push([...base,'','','','','','','','',p.notes]);
+  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirsOnly(a),a.type==='Crossarm'?(a.n||3):'',a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',a.type==='Guy / anchor'&&a.dist!=null?a.dist.toFixed(3):'',ph>=0?ph+1:'',p.notes])})});
  return '﻿'+rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
 }
 function dl(file){const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove()}
