@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10202e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>Pole Survey</title>
+<style>
+:root{--bg:#10202e;--card:#1a3045;--ink:#eef3f7;--mut:#8fa6b8;--acc:#d9a441;--ok:#4cc38a;--bad:#e5645a;--line:#2b4660}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:90px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top))}
+header h1{font-size:18px;margin:0;flex:1}
+button,.btn{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font:inherit;font-weight:600;cursor:pointer;min-height:46px}
+button.pri,.btn.pri{background:var(--acc);color:#1b1405;border-color:var(--acc)}
+button.dng{color:var(--bad)}
+button.sm{padding:6px 10px;min-height:34px;font-size:14px}
+main{padding:14px;max-width:760px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+.card h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:0 0 10px}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}
+input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;min-height:46px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.pole-item{display:flex;align-items:center;gap:12px;cursor:pointer}
+.pole-item .t{flex:1}.pole-item small{color:var(--mut)}
+.badge{font-size:12px;background:#0f1d2a;border:1px solid var(--line);border-radius:20px;padding:2px 9px;color:var(--mut)}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ph{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line);cursor:pointer}
+.ph img{width:100%;height:100%;object-fit:cover}
+.ph .n{position:absolute;left:4px;top:4px;background:rgba(0,0,0,.65);border-radius:8px;padding:0 7px;font-size:12px}
+.att{display:grid;grid-template-columns:30px 1fr 120px 36px;gap:8px;align-items:center;margin-bottom:8px}
+.att .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#10202e}
+.att .nm{font-weight:600;min-width:0}.att .nm small{display:block;color:var(--mut);font-weight:400}
+.att input{text-align:right;font-weight:700;font-size:17px}
+.att input.bad{border-color:var(--bad)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border-radius:20px;padding:8px 12px;min-height:38px;font-size:14px}
+.sticky{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 14px max(10px,env(safe-area-inset-bottom));display:flex;gap:10px;z-index:6}
+.sticky>*{flex:1}
+#diagram svg{width:100%;height:auto;background:#0b1620;border-radius:12px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20;display:none;flex-direction:column}
+.modal.on{display:flex}
+.modal .bar{display:flex;gap:10px;padding:10px 14px;align-items:center}
+.modal .bar span{flex:1;color:var(--mut);font-size:14px}
+.stage{flex:1;overflow:auto;display:grid;place-items:center;padding:6px}
+.stage .wrap{position:relative;display:inline-block;max-width:100%;max-height:100%}
+.stage img{display:block;max-width:100vw;max-height:70vh;touch-action:manipulation}
+.mk{position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;border:2px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#10202e}
+.sheetpick{background:var(--card);border-top:1px solid var(--line);padding:12px 14px max(12px,env(safe-area-inset-bottom))}
+.empty{color:var(--mut);text-align:center;padding:30px 10px}
+#sheet{display:none}
+@media print{
+ body{background:#fff;color:#000;padding:0}
+ body>*:not(#sheet){display:none!important}
+ #sheet{display:block;font:12px/1.35 Arial,sans-serif;color:#000}
+ #sheet h1{font-size:20px;margin:0 0 4px}
+ #sheet .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 12px;margin-bottom:8px}
+ #sheet .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ #sheet svg{width:100%;height:auto;background:#fff;border:1px solid #999}
+ #sheet table{width:100%;border-collapse:collapse}
+ #sheet td,#sheet th{border:1px solid #999;padding:3px 5px;text-align:left}
+ #sheet .pg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;page-break-before:always}
+ #sheet .pg img{width:100%;height:auto;border:1px solid #999}
+ @page{margin:12mm}
+}
+</style></head>
+<body>
+<header><button id="back" class="sm" style="display:none">‹ Poles</button><h1 id="title">Pole Survey</h1><button id="unit" class="sm">ft</button></header>
+<main id="main"></main>
+<div id="bar" class="sticky" style="display:none"></div>
+
+<div class="modal" id="viewer">
+ <div class="bar"><button id="vclose">Done</button><span id="vhint">Tap the photo where an attachment is</span><button class="dng sm" id="vdel">Delete photo</button></div>
+ <div class="stage"><div class="wrap" id="vwrap"><img id="vimg"></div></div>
+ <div class="sheetpick" id="vpick" style="display:none"><div style="color:var(--mut);font-size:13px;margin-bottom:8px">What is this?</div><div class="chips" id="vchips"></div></div>
+</div>
+<div id="sheet"></div>
+
+<script>
+'use strict';
+// ---------- constants ----------
+const TYPES=[
+ {k:'Primary',c:'#e5645a'},{k:'Neutral',c:'#9aa7b3'},{k:'Secondary',c:'#e8a04a'},{k:'Transformer',c:'#c77dff'},
+ {k:'Street light',c:'#f2e06b'},{k:'Telecom - existing',c:'#6fb3d9'},{k:'Fibre - existing',c:'#4cc38a'},
+ {k:'Strand - existing',c:'#5b9ec9'},{k:'Strand - proposed',c:'#d9a441'},{k:'Guy / anchor',c:'#a0856c'},
+ {k:'Riser',c:'#7bd0c1'},{k:'Other',c:'#cfcfcf'}];
+const UTILS=['Manitoba Hydro','Synergy North','Hydro One','Bell','Other'];
+const tcolor=k=>(TYPES.find(t=>t.k===k)||TYPES[TYPES.length-1]).c;
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let unit=localStorage.getItem('unit')||'ft';
+
+// ---------- storage (IndexedDB) ----------
+let db;
+const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('polesurvey',1);
+ r.onupgradeneeded=()=>r.result.createObjectStore('poles',{keyPath:'id'});
+ r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)});
+const tx=(m)=>db.transaction('poles',m).objectStore('poles');
+const pAll=()=>new Promise(r=>{const q=tx('readonly').getAll();q.onsuccess=()=>r(q.result)});
+const pGet=id=>new Promise(r=>{const q=tx('readonly').get(id);q.onsuccess=()=>r(q.result)});
+const pPut=p=>new Promise(r=>{p.updated=Date.now();const q=tx('readwrite').put(p);q.onsuccess=()=>r()});
+const pDel=id=>new Promise(r=>{const q=tx('readwrite').delete(id);q.onsuccess=()=>r()});
+
+// ---------- heights ----------
+const M_PER_IN=0.0254;
+function parseH(s){ // returns metres or null
+ s=String(s).trim().toLowerCase();if(!s)return null;
+ if(unit==='m'){const v=parseFloat(s.replace(',','.'));return isNaN(v)?null:v}
+ // feet: 23'6", 23-6, 23 6, 23.5, 23ft 6in
+ let m=s.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft|-|\s)\s*(\d+(?:\.\d+)?)?\s*(?:"|in)?$/);
+ if(m){const ft=parseFloat(m[1]),inch=m[2]?parseFloat(m[2]):0;return (ft*12+inch)*M_PER_IN}
+ const v=parseFloat(s);return isNaN(v)?null:v*12*M_PER_IN;
+}
+function fmtH(m){
+ if(m==null||isNaN(m))return '';
+ if(unit==='m')return m.toFixed(2)+' m';
+ const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"';
+}
+const fmtIn=m=>unit==='m'?m.toFixed(2)+' m':(()=>{const t=Math.round(m/M_PER_IN);return t>=12?Math.floor(t/12)+"'-"+(t%12)+'"':t+'"'})();
+
+// ---------- images ----------
+const urlCache={};
+function purl(ph){return urlCache[ph.id]||(urlCache[ph.id]=URL.createObjectURL(ph.blob))}
+async function compress(file){
+ const bmp=await createImageBitmap(file);const max=1800;const sc=Math.min(1,max/Math.max(bmp.width,bmp.height));
+ const c=document.createElement('canvas');c.width=Math.round(bmp.width*sc);c.height=Math.round(bmp.height*sc);
+ c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+ return new Promise(r=>c.toBlob(r,'image/jpeg',.82));
+}
+
+// ---------- diagram ----------
+function diagram(p,w=360,h=560){
+ const atts=p.attachments.filter(a=>a.height!=null).sort((a,b)=>b.height-a.height);
+ const top=Math.max(p.poleHeight||0,...atts.map(a=>a.height),3)*1.04;
+ const padT=24,padB=34,gy=h-padB,sc=(gy-padT)/top,px=150,pw0=16,pw1=9;
+ const y=m=>gy-m*sc;const ph=p.poleHeight||Math.max(...atts.map(a=>a.height),0)+1;
+ let s=`<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" font-family="Arial,sans-serif">`;
+ s+=`<rect width="${w}" height="${h}" fill="var(--dg,#0b1620)"/>`;
+ s+=`<line x1="10" y1="${gy}" x2="${w-10}" y2="${gy}" stroke="#7a6a4f" stroke-width="2"/><text x="14" y="${gy+16}" font-size="11" fill="#9a9a9a">GROUND</text>`;
+ s+=`<polygon points="${px-pw0/2},${gy} ${px+pw0/2},${gy} ${px+pw1/2},${y(ph)} ${px-pw1/2},${y(ph)}" fill="#8a6a43" stroke="#c9a46e"/>`;
+ if(p.poleHeight)s+=`<text x="${px}" y="${y(ph)-6}" font-size="11" fill="#c9a46e" text-anchor="middle">${esc(fmtH(p.poleHeight))}</text>`;
+ // label positions with collision push
+ const L=atts.map(a=>({a,y:y(a.height),ly:y(a.height)}));
+ const minGap=15;
+ for(let i=1;i<L.length;i++)if(L[i].ly-L[i-1].ly<minGap)L[i].ly=L[i-1].ly+minGap;
+ L.forEach((o,i)=>{const col=tcolor(o.a.type),pw=pw1+(pw0-pw1)*(o.a.height/ph);
+  s+=`<line x1="${px-pw/2-14}" y1="${o.y}" x2="${px+pw/2+14}" y2="${o.y}" stroke="${col}" stroke-width="4" stroke-linecap="round"/>`;
+  s+=`<polyline points="${px+pw/2+14},${o.y} ${px+46},${o.y} ${px+58},${o.ly}" fill="none" stroke="${col}" stroke-width="1"/>`;
+  s+=`<text x="${px+62}" y="${o.ly+4}" font-size="12" fill="${col}" font-weight="700">${esc(fmtH(o.a.height))} <tspan fill="#cfd8df" font-weight="400">${esc(o.a.type)}${o.a.owner?' ('+esc(o.a.owner)+')':''}</tspan></text>`;
+ });
+ // gaps on left
+ for(let i=1;i<atts.length;i++){const y1=y(atts[i-1].height),y2=y(atts[i].height),g=atts[i-1].height-atts[i].height;
+  if(y2-y1<12)continue;s+=`<line x1="${px-30}" y1="${y1}" x2="${px-30}" y2="${y2}" stroke="#52697c" stroke-width="1"/><text x="${px-36}" y="${(y1+y2)/2+4}" font-size="11" fill="#9db3c4" text-anchor="end">${esc(fmtIn(g))}</text>`}
+ return s+'</svg>';
+}
+
+// ---------- views ----------
+let cur=null; // current pole
+const main=$('#main'),bar=$('#bar');
+function setHeader(t,back){$('#title').textContent=t;$('#back').style.display=back?'':'none'}
+
+async function showList(){
+ cur=null;setHeader('Pole Survey',false);
+ const ps=(await pAll()).sort((a,b)=>b.updated-a.updated);
+ main.innerHTML=ps.length?ps.map(p=>`<div class="card pole-item" data-id="${p.id}"><div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):'<div class="empty">No poles yet.<br>Tap “New pole” to start.</div>';
+ main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>openPole(await pGet(e.dataset.id)));
+ bar.style.display='flex';bar.innerHTML='<button class="pri" id="new">+ New pole</button><button id="expall">Export all (CSV)</button>';
+ $('#new').onclick=async()=>{const p={id:uid(),poleId:'',utility:localStorage.getItem('lastUtil')||UTILS[0],lat:null,lng:null,date:new Date().toISOString().slice(0,10),notes:'',poleHeight:null,poleClass:'',photos:[],attachments:[],updated:Date.now()};await pPut(p);openPole(p)};
+ $('#expall').onclick=async()=>{const all=await pAll();if(!all.length)return;download('pole_survey_all.csv',csv(all),'text/csv')};
+}
+
+function openPole(p){cur=p;renderPole()}
+const save=()=>pPut(cur);
+
+function renderPole(){
+ setHeader(cur.poleId||'New pole',true);
+ const sorted=[...cur.attachments];
+ main.innerHTML=`
+ <div class="card"><h2>Pole</h2>
+  <div class="row"><div><label>Pole ID</label><input id="f_id" value="${esc(cur.poleId)}" placeholder="e.g. 12345 or tag #"></div>
+  <div><label>Utility</label><select id="f_ut">${UTILS.map(u=>`<option ${u===cur.utility?'selected':''}>${u}</option>`).join('')}</select></div></div>
+  <div class="row"><div><label>Pole height</label><input id="f_ph" inputmode="text" value="${esc(fmtH(cur.poleHeight))}" placeholder="${unit==='ft'?"e.g. 40' or 40-6":'e.g. 12.2'}"></div>
+  <div><label>Class / species</label><input id="f_cl" value="${esc(cur.poleClass)}" placeholder="e.g. 4 WRC"></div></div>
+  <div class="row"><div><label>Location</label><button id="gps" style="width:100%">${cur.lat!=null?cur.lat.toFixed(5)+', '+cur.lng.toFixed(5):'📍 Get GPS'}</button></div>
+  <div><label>Date</label><input type="date" id="f_dt" value="${cur.date}"></div></div>
+ </div>
+ <div class="card"><h2>Photos</h2>
+  <div class="photos" id="photos">${cur.photos.map((ph,i)=>`<div class="ph" data-i="${i}"><img src="${purl(ph)}"><span class="n">${i+1}</span>${markCount(ph)?`<span class="n" style="left:auto;right:4px;background:var(--acc);color:#000">${markCount(ph)}</span>`:''}</div>`).join('')}</div>
+  <div class="row" style="margin-top:10px"><label class="btn pri" style="text-align:center;margin:0">📷 Take photo<input id="cam" type="file" accept="image/*" capture="environment" hidden></label>
+  <label class="btn" style="text-align:center;margin:0">🖼 Add from gallery<input id="gal" type="file" accept="image/*" multiple hidden></label></div>
+ </div>
+ <div class="card"><h2>Attachments &amp; heights</h2>
+  <div style="color:var(--mut);font-size:13px;margin-bottom:8px">Quick add — or open a photo and tap each attachment on it.</div>
+  <div class="chips" id="quick">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">+ ${t.k}</button>`).join('')}</div>
+  <div id="atts" style="margin-top:14px"></div>
+ </div>
+ <div class="card"><h2>Diagram</h2><div id="diagram"></div></div>
+ <div class="card"><h2>Notes</h2><textarea id="f_nt" rows="3" placeholder="Condition, obstructions, span lengths, traffic control…">${esc(cur.notes)}</textarea></div>
+ <div class="card"><button class="dng" id="delp" style="width:100%">Delete this pole</button></div>`;
+ bar.style.display='flex';bar.innerHTML='<button id="share">Share package</button><button class="pri" id="pdf">PDF sheet</button><button id="csvb">CSV</button>';
+ const bind=(id,fn)=>$(id).addEventListener('change',fn);
+ bind('#f_id',e=>{cur.poleId=e.target.value.trim();save();setHeader(cur.poleId||'New pole',true)});
+ bind('#f_ut',e=>{cur.utility=e.target.value;localStorage.setItem('lastUtil',cur.utility);save()});
+ bind('#f_ph',e=>{const v=parseH(e.target.value);cur.poleHeight=v;e.target.value=fmtH(v);save();drawAtts()});
+ bind('#f_cl',e=>{cur.poleClass=e.target.value;save()});
+ bind('#f_dt',e=>{cur.date=e.target.value;save()});
+ bind('#f_nt',e=>{cur.notes=e.target.value;save()});
+ $('#gps').onclick=()=>{$('#gps').textContent='Locating…';navigator.geolocation.getCurrentPosition(pos=>{cur.lat=pos.coords.latitude;cur.lng=pos.coords.longitude;save();renderPole()},()=>{$('#gps').textContent='GPS unavailable'},{enableHighAccuracy:true,timeout:15000})};
+ const addPhotos=async files=>{for(const f of files){const blob=await compress(f);cur.photos.push({id:uid(),blob})}await save();renderPole()};
+ $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
+ document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
+ document.querySelectorAll('#quick .chip').forEach(b=>b.onclick=()=>{const a=addAtt(b.dataset.k);drawAtts(a.id)});
+ $('#delp').onclick=async()=>{if(confirm('Delete this pole and its photos?')){await pDel(cur.id);showList()}};
+ $('#pdf').onclick=printSheet;$('#csvb').onclick=()=>download(fname()+'.csv',csv([cur]),'text/csv');$('#share').onclick=sharePkg;
+ drawAtts();
+}
+const markCount=ph=>cur.attachments.filter(a=>a.photoId===ph.id).length;
+const fname=()=>(cur.poleId||'pole').replace(/[^\w-]+/g,'_');
+function addAtt(k,extra={}){const a={id:uid(),type:k,owner:'',height:null,note:'',...extra};cur.attachments.push(a);save();return a}
+
+function drawAtts(focusId){
+ const box=$('#atts');if(!box)return;
+ const list=[...cur.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
+ box.innerHTML=list.length?list.map(a=>{const n=cur.attachments.indexOf(a)+1;const over=cur.poleHeight&&a.height>cur.poleHeight;
+  return `<div class="att" data-id="${a.id}"><div class="dot" style="background:${tcolor(a.type)}">${a.photoId?n:''}</div>
+  <div class="nm">${esc(a.type)}<small><input class="own" value="${esc(a.owner)}" placeholder="owner / note" style="min-height:30px;padding:4px 8px;font-size:13px;font-weight:400;text-align:left;margin-top:3px"></small></div>
+  <input class="ht ${over?'bad':''}" inputmode="text" value="${esc(fmtH(a.height))}" placeholder="${unit==='ft'?"23'6":'7.15'}">
+  <button class="sm dng del">✕</button></div>`}).join(''):'<div class="empty" style="padding:10px">None yet</div>';
+ box.querySelectorAll('.att').forEach(r=>{const a=cur.attachments.find(x=>x.id===r.dataset.id);
+  r.querySelector('.ht').onchange=e=>{a.height=parseH(e.target.value);save();drawAtts();};
+  r.querySelector('.ht').onkeydown=e=>{if(e.key==='Enter')e.target.blur()};
+  r.querySelector('.own').onchange=e=>{a.owner=e.target.value;save();$('#diagram').innerHTML=diagram(cur)};
+  r.querySelector('.del').onclick=()=>{cur.attachments=cur.attachments.filter(x=>x!==a);save();drawAtts()}});
+ $('#diagram').innerHTML=diagram(cur);
+ if(focusId){const i=box.querySelector(`[data-id="${focusId}"] .ht`);i&&i.focus()}
+}
+
+// ---------- photo viewer / tagging ----------
+let vi=-1,vpend=null;
+function openViewer(i){vi=i;const ph=cur.photos[i];$('#vimg').src=purl(ph);$('#viewer').classList.add('on');$('#vpick').style.display='none';vpend=null;drawMarks()}
+function drawMarks(){const ph=cur.photos[vi];$('#vwrap').querySelectorAll('.mk').forEach(m=>m.remove());
+ cur.attachments.forEach((a,idx)=>{if(a.photoId!==ph.id)return;const m=document.createElement('div');m.className='mk';m.style.cssText=`left:${a.x*100}%;top:${a.y*100}%;background:${tcolor(a.type)}`;m.textContent=idx+1;
+  m.onclick=ev=>{ev.stopPropagation();if(confirm('Remove marker '+(idx+1)+' ('+a.type+')?')){a.photoId=null;save();drawMarks()}};$('#vwrap').appendChild(m)})}
+$('#vimg').onclick=e=>{const r=e.target.getBoundingClientRect();vpend={x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height};
+ $('#vchips').innerHTML=TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">${t.k}</button>`).join('');
+ $('#vpick').style.display='';
+ $('#vchips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{addAtt(b.dataset.k,{photoId:cur.photos[vi].id,x:vpend.x,y:vpend.y});vpend=null;$('#vpick').style.display='none';drawMarks()})};
+$('#vclose').onclick=()=>{$('#viewer').classList.remove('on');renderPole()};
+$('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its markers)?'))return;const ph=cur.photos[vi];cur.attachments.forEach(a=>{if(a.photoId===ph.id)a.photoId=null});cur.photos.splice(vi,1);save();$('#viewer').classList.remove('on');renderPole()};
+
+// ---------- export ----------
+function csv(poles){
+ const rows=[['Pole ID','Utility','Lat','Lng','Date','Pole height (m)','Pole height','Class','Attachment','Owner/Note','Height (m)','Height (ft-in)','Photo #','Pole notes']];
+ const ftin=m=>{const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"'};
+ poles.forEach(p=>{const base=[p.poleId,p.utility,p.lat??'',p.lng??'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
+  const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
+  if(!at.length)rows.push([...base,'','','','','',p.notes]);
+  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',ph>=0?ph+1:'',p.notes])})});
+ return rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+}
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click()}
+async function sharePkg(){
+ const files=[new File([csv([cur])],fname()+'.csv',{type:'text/csv'}),...cur.photos.map((ph,i)=>new File([ph.blob],`${fname()}_${i+1}.jpg`,{type:'image/jpeg'}))];
+ if(navigator.canShare&&navigator.canShare({files})){try{await navigator.share({files,title:'Pole '+cur.poleId,text:`Pole ${cur.poleId} – ${cur.utility}`})}catch(e){}}
+ else{download(fname()+'.csv',csv([cur]),'text/csv');alert('Sharing files is not supported here. CSV downloaded; use PDF sheet to print/save.')}
+}
+function printSheet(){
+ const p=cur;const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
+ $('#sheet').innerHTML=`<h1>Pole ${esc(p.poleId||'—')} — ${esc(p.utility)}</h1>
+ <div class="meta"><div><b>Date:</b> ${esc(p.date)}</div><div><b>Pole height:</b> ${esc(fmtH(p.poleHeight)||'—')}</div><div><b>Class:</b> ${esc(p.poleClass||'—')}</div>
+ <div style="grid-column:span 3"><b>GPS:</b> ${p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6):'—'}</div></div>
+ <div class="cols"><div>${diagram(p).replace('var(--dg,#0b1620)','#ffffff').replace(/fill="#cfd8df"/g,'fill="#222"').replace(/fill="#9db3c4"/g,'fill="#444"').replace(/fill="#9a9a9a"/g,'fill="#555"')}</div>
+ <div><table><tr><th>#</th><th>Attachment</th><th>Owner / note</th><th>Height</th></tr>${at.map(a=>`<tr><td>${a.photoId?p.attachments.indexOf(a)+1:''}</td><td>${esc(a.type)}</td><td>${esc(a.owner)}</td><td><b>${esc(fmtH(a.height))}</b></td></tr>`).join('')}</table>
+ ${p.notes?`<p><b>Notes:</b> ${esc(p.notes)}</p>`:''}</div></div>
+ ${p.photos.length?`<div class="pg">${p.photos.map((ph,i)=>`<div style="position:relative"><img src="${purl(ph)}">${p.attachments.map((a,idx)=>a.photoId===ph.id?`<span style="position:absolute;left:${a.x*100}%;top:${a.y*100}%;transform:translate(-50%,-50%);background:${tcolor(a.type)};border:1px solid #fff;border-radius:50%;width:16px;height:16px;font-size:10px;text-align:center;line-height:16px;color:#000;font-weight:700">${idx+1}</span>`:'').join('')}<div style="font-size:10px">Photo ${i+1}</div></div>`).join('')}</div>`:''}`;
+ setTimeout(()=>window.print(),150);
+}
+
+// ---------- boot ----------
+$('#back').onclick=showList;
+$('#unit').textContent=unit;
+$('#unit').onclick=()=>{unit=unit==='ft'?'m':'ft';localStorage.setItem('unit',unit);$('#unit').textContent=unit;cur?renderPole():showList()};
+idb().then(showList);
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
