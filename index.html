@@ -709,13 +709,17 @@ async function pgCovers(proj,poles){
   out.push(c)}while(idx<poles.length);
  return out;
 }
+const PDFQ={max:0,q:.86}; // photo size in the PDF: 0 = keep as taken
 async function pgFromCanvas(c){
- const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',.86));const bytes=new Uint8Array(await bl.arrayBuffer());const iw=c.width,ih=c.height;c.width=c.height=0;
+ const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',PDFQ.q));const bytes=new Uint8Array(await bl.arrayBuffer());const iw=c.width,ih=c.height;c.width=c.height=0;
  const land=iw>ih,W=land?792:612,H=land?612:792;return {W,H,bytes,iw,ih,content:`q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`};
 }
 const pdfStr=t=>String(t).replace(/[^\x20-\x7E]/g,'?').replace(/([\\()])/g,'\\$1');
 async function pgFromPhoto(p,i){
- const bytes=await readBytes(p.photos[i].blob);let sz=jpegSize(bytes);
+ let bytes=await readBytes(p.photos[i].blob);let sz=jpegSize(bytes);
+ if(PDFQ.max){const bmp=await decodeJpeg(bytes);const sc=Math.min(1,PDFQ.max/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas');c.width=Math.round(bmp.width*sc);c.height=Math.round(bmp.height*sc);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);bmp.close&&bmp.close();
+  const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',PDFQ.q));bytes=new Uint8Array(await bl.arrayBuffer());sz={w:c.width,h:c.height};c.width=c.height=0}
  if(!sz){const bmp=await decodeJpeg(bytes);sz={w:bmp.width,h:bmp.height};bmp.close&&bmp.close()}
  const iw=sz.w,ih=sz.h,land=iw>ih,W=land?792:612,H=land?612:792,m=28,capH=26,aw=W-2*m,ah=H-2*m-capH;
  const s=Math.min(aw/iw,ah/ih),dw=iw*s,dh=ih*s,x=(W-dw)/2,y=m+(ah-dh)/2;
@@ -755,7 +759,19 @@ async function makePdf(poles,opts={}){
 }
 
 // ---------- export dialog ----------
-async function exportDialog({base,poles,project}){
+async function exportDialog(o){
+ const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');h.textContent='PDF size';
+ const n=o.poles.reduce((t,p)=>t+p.photos.length,0),last=localStorage.getItem('pdfsz')||'med';
+ const est={full:.45,med:.18,small:.08},fmt=v=>{const mb=n*v*1.7;return mb<1?'under 1 MB':'about '+Math.round(mb)+' MB'};
+ b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:10px">${o.poles.length} pole${o.poles.length===1?'':'s'}, ${n} photo${n===1?'':'s'}. Smaller PDFs are easier to email; the original photos can still be sent separately at full quality.</div>
+ <button id="q_small"${last==='small'?' class="pri"':''}>Small — ${fmt(est.small)} (good for email)</button>
+ <button id="q_med"${last==='med'?' class="pri"':''}>Medium — ${fmt(est.med)} (readable detail)</button>
+ <button id="q_full"${last==='full'?' class="pri"':''}>Full quality — ${fmt(est.full)} (best for design)</button><button id="xc">Cancel</button>`;
+ const go=(k,max,q)=>()=>{localStorage.setItem('pdfsz',k);PDFQ.max=max;PDFQ.q=q;exportBuild(o)};
+ $('#q_small').onclick=go('small',900,.6);$('#q_med').onclick=go('med',1300,.72);$('#q_full').onclick=go('full',0,.86);
+ $('#xc').onclick=()=>m.classList.remove('on');
+}
+async function exportBuild({base,poles,project}){
  poles=(await Promise.all(poles.map(async p=>(await getPole(p.id))||p)));
  const skipped=[];
  const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');
