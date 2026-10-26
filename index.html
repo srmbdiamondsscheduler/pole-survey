@@ -421,8 +421,13 @@ function renderPole(){
   const finish=()=>{if(done)return;done=true;navigator.geolocation.clearWatch(wid);clearInterval(tm);if(!best){btn.textContent='GPS unavailable';return}cur.lat=best.latitude;cur.lng=best.longitude;cur.acc=best.accuracy;save();renderPole()};
   wid=navigator.geolocation.watchPosition(pos=>{if(!best||pos.coords.accuracy<best.accuracy)best=pos.coords;btn.textContent=`Locating… ±${Math.round(best.accuracy)} m`;if(best.accuracy<=3)finish()},()=>{if(!best)btn.textContent='GPS unavailable'},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
   tm=setInterval(()=>{if(--left<=0)finish()},1000)};
- const addPhotos=async files=>{for(const f of files){const blob=await compress(f),buf=await blob.arrayBuffer();cur.photos.push({id:uid(),blob,buf,type:'image/jpeg'})}await save();renderPole()};
- $('#cam').onchange=e=>addPhotos([...e.target.files]);$('#gal').onchange=e=>addPhotos([...e.target.files]);
+ const addPhotos=async files=>{SY.adding=true;let ok=0,fail=[];
+  for(const f of files){try{const blob=await compress(f),buf=await blob.arrayBuffer();cur.photos.push({id:uid(),blob,buf,type:'image/jpeg'});ok++}catch(e){fail.push((f.name||'photo')+': '+(e&&e.message||e))}}
+  try{if(ok)await save()}catch(e){fail.push('Could not save: '+(e&&e.message||e));ok=0}
+  SY.adding=false;
+  if(fail.length){let q='';try{const est=await navigator.storage.estimate();q=`\n\nPhone storage used by this app: ${Math.round(est.usage/1048576)} MB of about ${Math.round(est.quota/1048576)} MB.`}catch(e){}alert('Some photos were not added:\n'+fail.join('\n')+q)}
+  renderPole()};
+ $('#cam').onchange=e=>{const f=[...e.target.files];e.target.value='';addPhotos(f)};$('#gal').onchange=e=>{const f=[...e.target.files];e.target.value='';addPhotos(f)};
  document.querySelectorAll('.ph').forEach(e=>e.onclick=()=>openViewer(+e.dataset.i));
  document.querySelectorAll('#quick .chip').forEach(b=>b.onclick=()=>{const a=addAtt(b.dataset.k);drawAtts(a.id)});
  $('#dm').onclick=()=>{distoMode=!distoMode;localStorage.setItem('disto',distoMode?'1':'0');renderPole();if(distoMode)focusNextEmpty()};
@@ -838,7 +843,7 @@ async function importProject(file){
 
 
 // ---------- live sync (Supabase) ----------
-const SY={applying:false,busy:false,state:'off',msg:''};
+const SY={adding:false,applying:false,busy:false,state:'off',msg:''};
 const lsj=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
 const lss=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const tombA=id=>{(cur.da=cur.da||{})[id]=Date.now()},tombP=id=>{(cur.dp=cur.dp||{})[id]=Date.now()};
@@ -880,7 +885,7 @@ function mergePole(L,R){
  out.updated=Math.max(L.updated||0,R.updated||0);
  for(const a of out.attachments){const {u,h,...rest}=a;a.h=JSON.stringify(rest)}
  return out}
-function syBusy(){const e=document.activeElement;return (e&&/INPUT|TEXTAREA|SELECT/.test(e.tagName))||document.querySelector('.modal.on')}
+function syBusy(){const e=document.activeElement;return SY.adding||(e&&/INPUT|TEXTAREA|SELECT/.test(e.tagName))||document.querySelector('.modal.on')}
 async function syPush(){
  const dirty=lsj('sy_dirty',{}),up=new Set(lsj('sy_up',[]));
  for(const id of Object.keys(dirty)){const n=dirty[id];
