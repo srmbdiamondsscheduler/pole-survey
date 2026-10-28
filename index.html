@@ -80,7 +80,7 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;max-width:90vw;background:rgba(0,0,0,.88);color:#fff;border:1px solid var(--acc);padding:10px 16px;border-radius:22px;z-index:40;display:none;font-weight:600;text-align:center}
 .ht:focus{outline:3px solid var(--acc)}
 body.viewer #vbadge{display:block}#vbadge{display:none;background:#1d4d6b;color:#fff;text-align:center;font-size:13px;padding:5px 10px}
-body.viewer #newp,body.viewer #new,body.viewer #impb,body.viewer #xfer,body.viewer #selb,body.viewer #ren,body.viewer #arcp,body.viewer #delp,body.viewer #gps,body.viewer #dm,body.viewer #quick,body.viewer .del,body.viewer #vdel,body.viewer #cam,body.viewer #gal,body.viewer label.btn,body.viewer #vpick,body.viewer #bar .pri#new{display:none!important}
+body.viewer #newp,body.viewer #new,body.viewer #impb,body.viewer #xfer,body.viewer #selb,body.viewer #ren,body.viewer #arcp,body.viewer #delp,body.viewer #gps,body.viewer #gpsm,body.viewer #dm,body.viewer #quick,body.viewer .del,body.viewer #vdel,body.viewer #cam,body.viewer #gal,body.viewer label.btn,body.viewer #vpick,body.viewer #bar .pri#new{display:none!important}
 body.viewer #main input,body.viewer #main select,body.viewer #main textarea,body.viewer .dbtn,body.viewer .dot,body.viewer .nb,body.viewer .tysel{pointer-events:none}
 </style></head>
 <body>
@@ -404,7 +404,7 @@ function renderPole(){
   <div><label>Utility</label><select id="f_ut">${UTILS.map(u=>`<option ${u===cur.utility?'selected':''}>${u}</option>`).join('')}</select></div></div>
   <div class="row"><div><label>Pole height</label><input id="f_ph" inputmode="text" value="${esc(fmtH(cur.poleHeight))}" placeholder="${unit==='ft'?"e.g. 40' or 40-6":'e.g. 12.2'}"></div>
   <div><label>Class / species</label><input id="f_cl" value="${esc(cur.poleClass)}" placeholder="e.g. 4 WRC"></div></div>
-  <div class="row"><div><label>Location</label><button id="gps" style="width:100%">${cur.lat!=null?cur.lat.toFixed(5)+', '+cur.lng.toFixed(5)+(cur.acc!=null?' (±'+Math.round(cur.acc)+' m)':''):'📍 Get GPS'}</button></div>
+  <div class="row"><div><label>Location</label><button id="gps" style="width:100%">${cur.lat!=null?cur.lat.toFixed(5)+', '+cur.lng.toFixed(5)+(cur.acc!=null?' (±'+Math.round(cur.acc)+' m)':cur.gsrc==='manual'?' (typed)':''):'📍 Get GPS'}</button><button class="sm" id="gpsm" style="width:100%;margin-top:6px">✎ Type coordinates</button></div>
   <div><label>Date</label><input type="date" id="f_dt" value="${cur.date}"></div></div>
  </div>
  <div class="card"><h2>Photos</h2>
@@ -434,8 +434,11 @@ function renderPole(){
  bind('#f_cl',e=>{cur.poleClass=e.target.value;save()});
  bind('#f_dt',e=>{cur.date=e.target.value;save()});
  bind('#f_nt',e=>{cur.notes=e.target.value;save()});
+ $('#gpsm').onclick=async()=>{const t=await askText('Type coordinates','49.8951, -97.1384',cur.lat!=null?cur.lat.toFixed(6)+', '+cur.lng.toFixed(6):'');if(!t)return;const c=parseCoords(t);
+  if(!c){alert('Could not read those coordinates.\n\nExamples that work:\n49.8951, -97.1384\n49.8951 -97.1384\n49°53\'42.3"N 97°8\'18.2"W');return}
+  cur.lat=c.lat;cur.lng=c.lng;cur.acc=null;cur.gsrc='manual';await save();renderPole();toast(c.west?'Saved — longitude entered as west (negative)':'Coordinates saved')};
  $('#gps').onclick=()=>{const btn=$('#gps');let best=null,left=10,wid,tm,done=false;btn.textContent='Locating… 10 s';
-  const finish=()=>{if(done)return;done=true;navigator.geolocation.clearWatch(wid);clearInterval(tm);if(!best){btn.textContent='GPS unavailable';return}cur.lat=best.latitude;cur.lng=best.longitude;cur.acc=best.accuracy;save();renderPole()};
+  const finish=()=>{if(done)return;done=true;navigator.geolocation.clearWatch(wid);clearInterval(tm);if(!best){btn.textContent='GPS unavailable';return}cur.lat=best.latitude;cur.lng=best.longitude;cur.acc=best.accuracy;cur.gsrc='gps';save();renderPole()};
   wid=navigator.geolocation.watchPosition(pos=>{if(!best||pos.coords.accuracy<best.accuracy)best=pos.coords;btn.textContent=`Locating… ±${Math.round(best.accuracy)} m`;if(best.accuracy<=3)finish()},()=>{if(!best)btn.textContent='GPS unavailable'},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
   tm=setInterval(()=>{if(--left<=0)finish()},1000)};
  const addPhotos=async files=>{SY.adding=true;let ok=0,fail=[];
@@ -458,6 +461,17 @@ function renderPole(){
  drawAtts();
 }
 
+function parseCoords(t){ // decimal (49.8951, -97.1384), with N/S/E/W letters, or degrees-minutes-seconds. Returns {lat,lng,west} or null
+ t=String(t).trim().replace(/[′’‘]/g,"'").replace(/[″”“]/g,'"').replace(/[º˚]/g,'°');let lat,lng,hemiE=false;
+ const dms=[...t.matchAll(/(\d+(?:\.\d+)?)\s*°\s*(?:(\d+(?:\.\d+)?)\s*'\s*)?(?:(\d+(?:\.\d+)?)\s*"\s*)?([NSEW])/gi)];
+ if(dms.length>=2){for(const m of dms){let v=+m[1]+(+m[2]||0)/60+(+m[3]||0)/3600;const h=m[4].toUpperCase();if(h==='S'||h==='W')v=-v;if(h==='N'||h==='S')lat=v;else{lng=v;if(h==='E')hemiE=true}}}
+ else{const m=t.match(/^\s*([NSEW])?\s*(-?\d+(?:\.\d+)?)\s*°?\s*([NSEW])?\s*[,;\s]\s*([NSEW])?\s*(-?\d+(?:\.\d+)?)\s*°?\s*([NSEW])?\s*$/i);if(!m)return null;
+  const a={h:(m[1]||m[3]||'').toUpperCase(),v:+m[2]},b={h:(m[4]||m[6]||'').toUpperCase(),v:+m[5]};
+  const ap=x=>x.h==='S'||x.h==='W'?-Math.abs(x.v):x.v;
+  if(a.h==='E'||a.h==='W'){lng=ap(a);lat=ap(b);hemiE=a.h==='E'}else{lat=ap(a);lng=ap(b);hemiE=b.h==='E'}}
+ if(lat==null||lng==null||!isFinite(lat)||!isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return null;
+ let west=false;if(lng>0&&!hemiE&&lat>41&&lat<84&&lng>50&&lng<141){lng=-lng;west=true} // all of Canada is west of Greenwich
+ return {lat,lng,west}}
 function drawAtts(focusId){
  const box=$('#atts');if(!box)return;
  const list=[...cur.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
@@ -657,7 +671,7 @@ async function pgSummary(p){
  g.font='32px Arial';g.fillStyle='#444';
  g.fillText(`${p.utility}   |   ${p.date}`,PM,PM+76);
  g.fillText(`Pole height: ${fmtH(p.poleHeight)||'—'}      Class: ${p.poleClass||'—'}`,PM,PM+122);
- g.fillText('GPS: '+(p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6)+(p.acc!=null?'  (±'+Math.round(p.acc)+' m)':''):'—'),PM,PM+168);
+ g.fillText('GPS: '+(p.lat!=null?p.lat.toFixed(6)+', '+p.lng.toFixed(6)+(p.acc!=null?'  (±'+Math.round(p.acc)+' m)':p.gsrc==='manual'?'  (typed)':''):'—'),PM,PM+168);
  g.drawImage(await svgImg(diagram(p,{light:true})),PM,270,650,857);
  g.strokeStyle='#bbb';g.lineWidth=2;g.strokeRect(PM,270,650,857);
  const x0=740,W=475,cw=[44,205,92,134];let y=270;
