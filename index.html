@@ -355,7 +355,7 @@ async function showProject(){
  lSet=new Set([...lSet].filter(id=>ps.some(p=>p.id===id)));
  const emptyMsg=lTab==='active'?'No poles in this project yet.<br>Tap “New pole” to start.':'Nothing archived.<br>Archive finished poles to keep this list short.';
  main.innerHTML=`<div class="tabs"><button class="tab ${lTab==='active'?'on':''}" data-t="active">Poles (${act.length})</button><button class="tab ${lTab==='archived'?'on':''}" data-t="archived">Archived (${arc.length})</button></div>`+
-  `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button><button id="prof" class="sm">📈 Line profile</button>'}</div>`+
+  `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button><button id="ovw" class="sm">🗺 Overview</button><button id="prof" class="sm">📈 Line profile</button>'}</div>`+
   (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:'<div class="grip" title="Drag to reorder">⠿</div>'}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
  main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{lTab=t.dataset.t;lSelMode=false;lSet.clear();showProject()});
  main.querySelectorAll('.grip').forEach(g=>{g.onclick=e=>e.stopPropagation();g.onpointerdown=e=>{
@@ -373,6 +373,7 @@ async function showProject(){
  if($('#selb'))$('#selb').onclick=()=>{lSelMode=!lSelMode;lSet.clear();showProject()};
  if($('#alls'))$('#alls').onclick=()=>{lSet=lSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProject()};
  if($('#prof'))$('#prof').onclick=()=>showProfile(act);
+ if($('#ovw'))$('#ovw').onclick=()=>showOverview(act);
  if($('#ren'))$('#ren').onclick=async()=>{const n=await askText('Rename project','Project name',curProj.name);if(!n)return;curProj.name=n;await putOne('projects',curProj);showProject()};
  bar.style.display='flex';
  if(lSelMode){const n=lSet.size,dis=n?'':'disabled',chosen=()=>ps.filter(p=>lSet.has(p.id));
@@ -592,6 +593,72 @@ async function showProfile(act){
    const f=new File([buildPdf(pgs)],safe(curProj.name)+'_line_profile.pdf',{type:'application/pdf'});
    if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:curProj.name})}catch(e){}}else dl(f)}catch(e){alert('Could not build the sketch PDF: '+e.message)}bt.textContent='Save / share this sketch as a PDF'};
  $('#xc').onclick=()=>m.classList.remove('on');$('#chk').onclick=()=>chkElev(full,projRef[curProj.id],$('#chkres'))}
+// ---------- site overview: a tilted bird's-eye view of where the poles are ----------
+function poleXY(L){ // metres east/north of an arbitrary origin, from GPS; poles without GPS are placed along the line using the spans (marked est)
+ const known=L.filter(o=>o.p.lat!=null&&o.p.lng!=null),m=known.length||1;
+ const lat0=known.reduce((t,o)=>t+o.p.lat,0)/m,lng0=known.reduce((t,o)=>t+o.p.lng,0)/m,mLat=111320,mLng=111320*Math.cos(lat0*Math.PI/180);
+ const pos=L.map(o=>o.p.lat!=null&&o.p.lng!=null?{e:(o.p.lng-lng0)*mLng,n:(o.p.lat-lat0)*mLat,est:false}:null);
+ if(!known.length)pos[0]={e:0,n:0,est:true};
+ let dir=null;const spanOf=i=>{const l=L[i]&&L[i].link;return l&&l.sp!=null?l.sp:30};
+ for(let i=0;i<pos.length;i++){
+  if(pos[i]){const pj=pos.slice(0,i).reverse().find(q=>q);if(pj){const dx=pos[i].e-pj.e,dy=pos[i].n-pj.n,d=Math.hypot(dx,dy);if(d>1)dir=[dx/d,dy/d]}continue}
+  const prev=pos[i-1];if(!prev)continue;const d=dir||[1,0],sp=spanOf(i-1);pos[i]={e:prev.e+d[0]*sp,n:prev.n+d[1]*sp,est:true}}
+ for(let i=pos.length-1;i>=0;i--){if(pos[i])continue;const nx=pos[i+1],d=dir||[1,0],sp=spanOf(i);pos[i]=nx?{e:nx.e-d[0]*sp,n:nx.n-d[1]*sp,est:true}:{e:0,n:0,est:true}}
+ return pos}
+function overviewSVG(poles,o={}){
+ const light=!!o.light,W=o.w||1000,H=o.h||700,L=lineData(poles,o.ref),P=poleXY(L),n=L.length;
+ const bg=light?'#fff':'#0b1620',ink=light?'#222':'#cfd8df',sub=light?'#666':'#9db3c4',plane=light?'#efe9da':'#16242f',grid=light?'#d3c9b0':'#2a3d4b',route=light?'#1d6fa5':'#6fb3d9',stick=light?'#8a6a43':'#c9a46e';
+ const hasA=L[0].asl!=null,zs=L.map(q=>hasA?q.asl:q.z),zmin=Math.min(...zs),zmax=Math.max(...zs),R=Math.max(zmax-zmin,0.5);
+ const es=P.map(q=>q.e),ns=P.map(q=>q.n);let minE=Math.min(...es),maxE=Math.max(...es),minN=Math.min(...ns),maxN=Math.max(...ns);
+ const pm=Math.max(15,0.1*Math.max(maxE-minE,maxN-minN));minE-=pm;maxE+=pm;minN-=pm;maxN+=pm;
+ const spanE=Math.max(maxE-minE,20),spanN=Math.max(maxN-minN,20),k=0.58,pad=46,relief=Math.min(90,H*0.13),stk=36,bottom=70;
+ const sc=Math.min((W-2*pad)/spanE,(H-pad-bottom-relief-stk-20)/(spanN*k)),ox=(W-spanE*sc)/2;
+ const X=e=>ox+(e-minE)*sc,YP=nn=>H-bottom-(nn-minN)*sc*k,ve=relief/R;
+ let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="Arial,Helvetica,sans-serif"><rect width="${W}" height="${H}" fill="${bg}"/>`;
+ s+=`<polygon points="${X(minE).toFixed(1)},${YP(minN).toFixed(1)} ${X(maxE).toFixed(1)},${YP(minN).toFixed(1)} ${X(maxE).toFixed(1)},${YP(maxN).toFixed(1)} ${X(minE).toFixed(1)},${YP(maxN).toFixed(1)}" fill="${plane}" stroke="${grid}" stroke-width="1.2"/>`;
+ const nice=[5,10,20,50,100,200,500,1000,2000,5000,10000],stp=nice.find(v=>v>=Math.max(spanE,spanN)/6)||10000;
+ for(let e=Math.ceil(minE/stp)*stp;e<maxE;e+=stp)s+=`<line x1="${X(e).toFixed(1)}" y1="${YP(minN).toFixed(1)}" x2="${X(e).toFixed(1)}" y2="${YP(maxN).toFixed(1)}" stroke="${grid}" stroke-width=".8"/>`;
+ for(let nn=Math.ceil(minN/stp)*stp;nn<maxN;nn+=stp)s+=`<line x1="${X(minE).toFixed(1)}" y1="${YP(nn).toFixed(1)}" x2="${X(maxE).toFixed(1)}" y2="${YP(nn).toFixed(1)}" stroke="${grid}" stroke-width=".8"/>`;
+ const B=P.map((q,i)=>({x:X(q.e),yg:YP(q.n),yb:YP(q.n)-(zs[i]-zmin)*ve,i}));
+ s+=`<polyline points="${B.map(q=>q.x.toFixed(1)+','+q.yg.toFixed(1)).join(' ')}" fill="none" stroke="${sub}" stroke-width="1.6" stroke-dasharray="5 4" opacity=".7"/>`;
+ s+=`<polyline points="${B.map(q=>q.x.toFixed(1)+','+q.yb.toFixed(1)).join(' ')}" fill="none" stroke="${route}" stroke-width="2.4"/>`;
+ const lab=n<=15;
+ [...B].sort((a,b)=>a.yg-b.yg).forEach(q=>{const i=q.i,est=P[i].est,p=L[i].p,top=q.yb-stk;
+  if(Math.abs(q.yg-q.yb)>3)s+=`<line x1="${q.x.toFixed(1)}" y1="${q.yb.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.yg.toFixed(1)}" stroke="${sub}" stroke-width="1" stroke-dasharray="2 3"/>`;
+  s+=`<ellipse cx="${q.x.toFixed(1)}" cy="${q.yg.toFixed(1)}" rx="5" ry="2.6" fill="#000" opacity=".25"/>`;
+  s+=`<line x1="${q.x.toFixed(1)}" y1="${q.yb.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${top.toFixed(1)}" stroke="${stick}" stroke-width="4.5" stroke-linecap="round"${est?' stroke-dasharray="4 3"':''}/>`;
+  s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.yb.toFixed(1)}" r="3.4" fill="${route}"/>`;
+  s+=`<circle cx="${q.x.toFixed(1)}" cy="${top.toFixed(1)}" r="10" fill="${est?bg:ink}" stroke="${ink}" stroke-width="1.6"/><text x="${q.x.toFixed(1)}" y="${(top+3.8).toFixed(1)}" font-size="${i>=9?9.5:11}" font-weight="700" fill="${est?ink:bg}" text-anchor="middle">${i+1}</text>`;
+  if(lab){s+=`<text x="${(q.x+15).toFixed(1)}" y="${(top+1).toFixed(1)}" font-size="13" font-weight="700" fill="${ink}" stroke="${bg}" stroke-width="3" paint-order="stroke">${esc((p.poleId||'?').slice(0,16))}</text>`;
+   s+=`<text x="${(q.x+15).toFixed(1)}" y="${(top+14).toFixed(1)}" font-size="11" fill="${sub}" stroke="${bg}" stroke-width="3" paint-order="stroke">${esc(hasA?fmtIn(zs[i]):fmtS(zs[i]))}</text>`}});
+ // north arrow and scale bar
+ const nx=W-pad,ny=pad+4;s+=`<line x1="${nx}" y1="${ny+38}" x2="${nx}" y2="${ny+4}" stroke="${ink}" stroke-width="2"/><polygon points="${nx},${ny-4} ${nx-6},${ny+8} ${nx+6},${ny+8}" fill="${ink}"/><text x="${nx}" y="${ny+54}" font-size="14" font-weight="700" fill="${ink}" text-anchor="middle">N</text>`;
+ const bar=nice.find(v=>v*sc>=110)||nice[nice.length-1],bx=pad,by=H-30;
+ s+=`<line x1="${bx}" y1="${by}" x2="${(bx+bar*sc).toFixed(1)}" y2="${by}" stroke="${ink}" stroke-width="3"/><line x1="${bx}" y1="${by-6}" x2="${bx}" y2="${by+6}" stroke="${ink}" stroke-width="2"/><line x1="${(bx+bar*sc).toFixed(1)}" y1="${by-6}" x2="${(bx+bar*sc).toFixed(1)}" y2="${by+6}" stroke="${ink}" stroke-width="2"/><text x="${bx}" y="${by-12}" font-size="12" fill="${ink}">${unit==='ft'?Math.round(bar/0.3048).toLocaleString()+' ft':bar.toLocaleString()+' m'} (ground distance; heights exaggerated)</text>`;
+ s+=`</svg>`;return s}
+function overviewStats(poles,ref){
+ const L=lineData(poles,ref),P=poleXY(L);let d=0;for(let i=1;i<P.length;i++)d+=Math.hypot(P[i].e-P[i-1].e,P[i].n-P[i-1].n);
+ const hasA=L[0].asl!=null,zs=L.map(q=>hasA?q.asl:q.z),est=P.filter(q=>q.est).length;
+ return {L,P,len:d,est,zmin:Math.min(...zs),zmax:Math.max(...zs),hasA}}
+async function pgOverview(proj,poles){
+ const ref=projRef[proj.id],st=overviewStats(poles,ref),{c,g}=mkPage(),wd=PW-2*PM,W=1000,H=840;
+ g.fillStyle='#111';g.font='bold 52px Arial';g.fillText('Site overview',PM,PM);g.fillStyle='#555';g.font='26px Arial';g.fillText(proj.name,PM,PM+70);
+ const dist=st.len<1000?Math.round(st.len)+' m':(st.len/1000).toFixed(2)+' km',dft=unit==='ft'?'  ('+Math.round(st.len/0.3048).toLocaleString()+' ft)':'';
+ g.font='24px Arial';g.fillStyle='#333';g.fillText(`${poles.length} poles  ·  about ${dist}${dft} along the line${st.hasA?`  ·  ${fmtIn(st.zmin)} to ${fmtIn(st.zmax)} above sea level`:''}`,PM,PM+112);
+ const img=await svgImg(overviewSVG(poles,{light:true,w:W,h:H,ref})),hh=wd*H/W,y0=PM+156;g.drawImage(img,PM,y0,wd,hh);
+ let y=y0+hh+24;g.font='22px Arial';g.fillStyle='#555';
+ y=wrap(g,'Positions come from each pole\'s GPS.'+(st.est?` ${st.est} pole${st.est===1?'':'s'} with no GPS (hollow numbers, marked ~) are placed along the line using the spans.`:'')+' Dotted lines drop to the ground; heights are exaggerated.',PM,y,wd,30)+14;
+ const cols=3,cw=wd/cols,per=Math.max(1,Math.floor((PH-PM-y)/32));g.font='22px Arial';
+ for(let i=0;i<poles.length&&i<per*cols;i++){const col=Math.floor(i/per),row=i%per,L=st.L[i],x=PM+col*cw,yy=y+row*32;
+  g.fillStyle='#111';g.font='bold 22px Arial';const t=`${i+1}. ${poles[i].poleId||'(no ID)'}`;fit(g,t,cw*.55,22,'bold');g.fillText(t,x,yy);
+  g.font='22px Arial';g.fillStyle='#444';g.fillText((L.asl!=null?fmtIn(L.asl):fmtS(L.z))+(st.P[i].est?' ~':''),x+cw*.56,yy)}
+ return c}
+async function showOverview(act){
+ const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');h.textContent='Site overview';
+ if(act.length<2){b.innerHTML='<div class="empty">Add at least two poles to see them together.</div><button id="xc">Close</button>';$('#xc').onclick=()=>m.classList.remove('on');return}
+ const full=await Promise.all(act.map(p=>getPole(p.id)));
+ b.innerHTML=`<div style="overflow:auto;border-radius:8px">${overviewSVG(full,{w:1000,h:760,ref:projRef[curProj.id]}).replace(/ width="\d+" height="\d+"/,' style="min-width:700px;width:100%;height:auto"')}</div><div style="color:var(--mut);font-size:12px;margin:8px 0">Seen from above at an angle. Numbers match the pole order. It is the first page after the cover in the project PDF.</div><button id="xc">Close</button>`;
+ $('#xc').onclick=()=>m.classList.remove('on')}
 async function pgProfile(proj,poles){
  const ref=projRef[proj.id],Lall=lineData(poles,ref),out=[],n=poles.length,asl=Lall[0].asl!=null,CH=6;
  const spans=n<=CH?[[0,n-1]]:[];if(n>CH)for(let a=0;a<n-1;a+=CH-1)spans.push([a,Math.min(a+CH-1,n-1)]);
@@ -931,6 +998,7 @@ function buildPdf(pg){
 async function makePdf(poles,opts={}){
  const pgs=[];
  if(opts.project)for(const c of await pgCovers(opts.project,poles))pgs.push(await pgFromCanvas(c));
+ if(opts.project&&poles.length>1&&(poles.some(p=>p.lat!=null)||hasLine(poles))){try{pgs.push(await pgFromCanvas(await pgOverview(opts.project,poles)))}catch(e){(opts.skipped||[]).push('Site overview page: '+e.message)}}
  if(opts.project&&poles.length>1&&hasLine(poles)){try{for(const c of await pgProfile(opts.project,poles))pgs.push(await pgFromCanvas(c))}catch(e){(opts.skipped||[]).push('Line profile page: '+e.message)}}
  for(let k=0;k<poles.length;k++){const p=poles[k];ensureColors(p);
   if(opts.onProgress){opts.onProgress(k+1,poles.length,p);await tick()}
