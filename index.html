@@ -925,7 +925,9 @@ async function syPush(){
 async function syPull(){
  const metas=await(await sb('/rest/v1/docs?select=id,kind,updated,deleted')).json();
  const rev=lsj('sy_rev',{}),tomb=lsj('sy_tomb',{}),up=new Set(lsj('sy_up',[]));let changed=false,curHit=false;
+ const mm0=lsj('sy_miss',{});SY.tries=SY.tries||{};
  for(const m of metas){if(rev[m.id]===m.updated||tomb[m.id])continue;
+  if(mm0[m.id]&&Date.now()-(SY.tries[m.id]||0)<60000)continue;SY.tries[m.id]=Date.now();
   const row=(await(await sb('/rest/v1/docs?id=eq.'+m.id+'&select=*')).json())[0];if(!row)continue;
   const store=row.kind==='project'?'projects':'poles';
   if(store==='poles'&&cur&&cur.id===m.id&&syBusy())continue; // never swap data under the user's finger; retried next cycle
@@ -935,14 +937,17 @@ async function syPull(){
    if(!L||(row.data.updated||0)>(L.updated||0)){SY.applying=true;try{await putOne('projects',row.data,true)}finally{SY.applying=false}changed=true;if(curProj&&curProj.id===m.id)Object.assign(curProj,row.data)}
    rev[m.id]=m.updated;lss('sy_rev',rev);continue}
   const R=row.data;
-  for(const ph of R.photos||[]){ // fetch photos this device doesn't have yet
+  const miss=[];
+  for(const ph of R.photos||[]){ // fetch photos this device doesn't have yet; a photo missing in the cloud never blocks the rest
    const L0=await getOne('poles',m.id);if(L0&&L0.photos.some(x=>x.id===ph.id&&(x.buf||x.blob)))continue;
-   const r=await sb('/storage/v1/object/authenticated/photos/'+ph.id);ph.buf=await r.arrayBuffer();ph.type=ph.type||'image/jpeg';up.add(ph.id)}
+   try{const r=await sb('/storage/v1/object/authenticated/photos/'+ph.id);ph.buf=await r.arrayBuffer();ph.type=ph.type||'image/jpeg';up.add(ph.id)}catch(e){miss.push(ph.id)}}
+  R.photos=(R.photos||[]).filter(x=>!miss.includes(x.id));
+  const mm=lsj('sy_miss',{});if(miss.length)mm[m.id]=miss.length;else delete mm[m.id];lss('sy_miss',mm);
   lss('sy_up',[...up]);
   const L=await getOne('poles',m.id);const merged=L?mergePole(L,R):{...R,dp:R.dp||{},da:R.da||{}};
   SY.applying=true;try{await putOne('poles',merged,true)}finally{SY.applying=false}
-  if(L&&JSON.stringify(docOf(merged))!==JSON.stringify(R)){const d=lsj('sy_dirty',{});d[m.id]='poles';lss('sy_dirty',d)}
-  rev[m.id]=m.updated;lss('sy_rev',rev);changed=true;if(cur&&cur.id===m.id)curHit=merged}
+  if(L&&!miss.length&&JSON.stringify(docOf(merged))!==JSON.stringify(R)){const d=lsj('sy_dirty',{});d[m.id]='poles';lss('sy_dirty',d)}
+  if(!miss.length){rev[m.id]=m.updated;lss('sy_rev',rev)}changed=true;if(cur&&cur.id===m.id)curHit=merged}
  if(changed){
   if(curHit==='gone'){toast('This pole was deleted on the other device');showProject()}
   else if(curHit){const sy=window.scrollY;const h=await getPole(cur.id);Object.keys(cur).forEach(k=>delete cur[k]);Object.assign(cur,h);renderPole();window.scrollTo(0,sy)}
@@ -959,8 +964,10 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow()}
 function syncDialog(){const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');const c=syCfg();h.textContent='Live sync';
  if(c){const dn=Object.keys(lsj('sy_dirty',{})).length;
   b.innerHTML=`<div style="font-size:14px">Signed in as <b>${esc(c.email)}</b></div><div style="color:var(--mut);font-size:13px;margin:8px 0">${SY.state==='err'?'⚠ '+esc(SY.msg):SY.state==='sync'?'Syncing…':'✓ Up to date'}${dn?` — ${dn} change${dn>1?'s':''} waiting to upload`:''}<br>Last sync: ${lss&&lsj('sy_last',0)?new Date(lsj('sy_last',0)).toLocaleTimeString():'never'}<br>Changes show up on your other device within a few seconds. Without signal the app keeps working and catches up later.</div>
-  <button class="pri" id="sn">Sync now</button><button id="so" class="dng">Sign out of sync</button><button id="xc">Close</button>`;
+  ${Object.keys(lsj('sy_miss',{})).length?`<div style="color:var(--bad);font-size:13px;margin-bottom:8px">⚠ ${Object.values(lsj('sy_miss',{})).reduce((a,b)=>a+b,0)} photo(s) are missing in the cloud and could not be copied here. On the phone that took them, tap Repair — it uploads them again.</div>`:''}
+  <button class="pri" id="sn">Sync now</button><button id="rp">Repair — upload all photos &amp; poles again</button><button id="so" class="dng">Sign out of sync</button><button id="xc">Close</button>`;
   $('#sn').onclick=async()=>{await syncNow();syncDialog()};
+  $('#rp').onclick=async()=>{if(isViewer()){alert('View-only devices cannot upload.');return}localStorage.removeItem('sy_up');localStorage.removeItem('sy_rev');const d=lsj('sy_dirty',{});for(const n of ['poles','projects'])for(const x of await getAll(n))d[x.id]=n;lss('sy_dirty',d);toast('Re-uploading everything…');await syncNow();syncDialog()};
   $('#so').onclick=()=>{if(confirm('Stop syncing on this device? Your data stays here and in the cloud.')){['sy_cfg','sy_dirty','sy_tomb','sy_rev','sy_up'].forEach(k=>localStorage.removeItem(k));document.body.classList.remove('viewer');syStatus('off');m.classList.remove('on')}};
  }else{
   b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:8px">Enter the details from your Supabase project (Project Settings → API) and the user you created. Same details on every device.</div>
