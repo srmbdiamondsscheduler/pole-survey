@@ -80,7 +80,7 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;max-width:90vw;background:rgba(0,0,0,.88);color:#fff;border:1px solid var(--acc);padding:10px 16px;border-radius:22px;z-index:40;display:none;font-weight:600;text-align:center}
 .ht:focus{outline:3px solid var(--acc)}
 body.viewer #vbadge{display:block}#vbadge{display:none;background:#1d4d6b;color:#fff;text-align:center;font-size:13px;padding:5px 10px}
-body.viewer #newp,body.viewer #new,body.viewer #impb,body.viewer #xfer,body.viewer #selb,body.viewer #ren,body.viewer #arcp,body.viewer #delp,body.viewer #gps,body.viewer #gpsm,body.viewer #dm,body.viewer #quick,body.viewer .del,body.viewer #vdel,body.viewer #cam,body.viewer #gal,body.viewer label.btn,body.viewer #vpick,body.viewer #bar .pri#new{display:none!important}
+body.viewer #newp,body.viewer #new,body.viewer #impb,body.viewer #xfer,body.viewer #selb,body.viewer #ren,body.viewer #arcp,body.viewer #delp,body.viewer #calc,body.viewer #elk,body.viewer #elu,body.viewer #elr,body.viewer #avgset,body.viewer #gps,body.viewer #gpsm,body.viewer #dm,body.viewer #quick,body.viewer .del,body.viewer #vdel,body.viewer #cam,body.viewer #gal,body.viewer label.btn,body.viewer #vpick,body.viewer #bar .pri#new{display:none!important}
 body.viewer #main input,body.viewer #main select,body.viewer #main textarea,body.viewer .dbtn,body.viewer .dot,body.viewer .nb,body.viewer .tysel{pointer-events:none}
 </style></head>
 <body>
@@ -129,10 +129,10 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const safe=s=>String(s||'').replace(/[^\w-]+/g,'_').replace(/^_+|_+$/g,'')||'untitled';
 const tick=()=>new Promise(r=>setTimeout(r,0));
 let unit=localStorage.getItem('unit')||'ft';
-const projName={};
+const projName={},projRef={};
 let distoMode=localStorage.getItem('disto')==='1'; // laser reading arrives as typed text; auto-advance to the next empty height
 let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',2600)}
-function focusNextEmpty(){const e=[...document.querySelectorAll('#atts .ht')].find(i=>!i.value);if(e){e.focus({preventScroll:true});e.scrollIntoView({block:'center',behavior:'smooth'});return e}return null}
+function focusNextEmpty(){const e=[...document.querySelectorAll('#atts .ht, #nxt .ht')].find(i=>!i.value);if(e){e.focus({preventScroll:true});e.scrollIntoView({block:'center',behavior:'smooth'});return e}return null}
 
 // ---------- storage (IndexedDB) ----------
 let db;
@@ -316,7 +316,7 @@ let pTab='active',pSelMode=false,pSet=new Set();
 async function showProjects(){
  view='projects';cur=null;curProj=null;setHeader('Pole Survey',false);
  const [projs,poles]=await Promise.all([getAll('projects'),getAll('poles')]);
- projs.forEach(p=>{projName[p.id]=p.name;projView[p.id]=p.view});
+ projs.forEach(p=>{projName[p.id]=p.name;projView[p.id]=p.view;projRef[p.id]={pole:p.refPole,elev:p.refElev}});
  projs.sort((a,b)=>b.updated-a.updated);
  const act=projs.filter(p=>!p.archived),arc=projs.filter(p=>p.archived),ps=pTab==='active'?act:arc;
  pSet=new Set([...pSet].filter(id=>ps.some(p=>p.id===id)));
@@ -349,13 +349,13 @@ async function showProjects(){
 let lTab='active',lSelMode=false,lSet=new Set();
 const poleOrd=(a,b)=>{const ha=a.order!=null,hb=b.order!=null;if(ha&&hb)return a.order-b.order;if(ha!==hb)return ha?1:-1;return b.updated-a.updated}; // your own order first-class; poles not yet placed show newest-first at the top
 async function showProject(){
- view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;projView[curProj.id]=curProj.view;
+ view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;projView[curProj.id]=curProj.view;projRef[curProj.id]={pole:curProj.refPole,elev:curProj.refElev};
  const all=(await getAll('poles')).filter(p=>p.projectId===curProj.id).sort(poleOrd);
  const act=all.filter(p=>!p.archived),arc=all.filter(p=>p.archived),ps=lTab==='active'?act:arc;
  lSet=new Set([...lSet].filter(id=>ps.some(p=>p.id===id)));
  const emptyMsg=lTab==='active'?'No poles in this project yet.<br>Tap “New pole” to start.':'Nothing archived.<br>Archive finished poles to keep this list short.';
  main.innerHTML=`<div class="tabs"><button class="tab ${lTab==='active'?'on':''}" data-t="active">Poles (${act.length})</button><button class="tab ${lTab==='archived'?'on':''}" data-t="archived">Archived (${arc.length})</button></div>`+
-  `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button>'}</div>`+
+  `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button><button id="prof" class="sm">📈 Line profile</button>'}</div>`+
   (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:'<div class="grip" title="Drag to reorder">⠿</div>'}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
  main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{lTab=t.dataset.t;lSelMode=false;lSet.clear();showProject()});
  main.querySelectorAll('.grip').forEach(g=>{g.onclick=e=>e.stopPropagation();g.onpointerdown=e=>{
@@ -372,6 +372,7 @@ async function showProject(){
  main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(lSelMode){lSet.has(e.dataset.id)?lSet.delete(e.dataset.id):lSet.add(e.dataset.id);showProject()}else openPole(await getPole(e.dataset.id))});
  if($('#selb'))$('#selb').onclick=()=>{lSelMode=!lSelMode;lSet.clear();showProject()};
  if($('#alls'))$('#alls').onclick=()=>{lSet=lSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProject()};
+ if($('#prof'))$('#prof').onclick=()=>showProfile(act);
  if($('#ren'))$('#ren').onclick=async()=>{const n=await askText('Rename project','Project name',curProj.name);if(!n)return;curProj.name=n;await putOne('projects',curProj);showProject()};
  bar.style.display='flex';
  if(lSelMode){const n=lSet.size,dis=n?'':'disabled',chosen=()=>ps.filter(p=>lSet.has(p.id));
@@ -420,6 +421,8 @@ function renderPole(){
   <div class="chips" id="quick">${TYPES.map(t=>`<button class="chip" data-k="${t.k}" style="border-color:${t.c};color:${t.c}">+ ${t.k}</button>`).join('')}</div>
   <div id="atts" style="margin-top:14px"></div>
  </div>
+ <div class="card"><h2>Next pole in the line</h2><div id="nxt"></div></div>
+ <div class="card"><h2>Elevation above sea level</h2><div id="elev"></div></div>
  <div class="card"><h2>Diagram</h2><div id="diagram"></div>
   <button class="sm" id="zm" style="width:100%;margin-top:12px">${cur.zoom?'↕ Show full pole':'🔍 Zoom to attachments'}</button>
   <div class="row" style="margin-top:10px;align-items:center"><button class="sm" id="vl">⟲ Turn compass</button><button class="sm" id="vr">Turn compass ⟳</button></div>
@@ -458,7 +461,7 @@ function renderPole(){
  const lab=()=>{$('#vlab').innerHTML=`Viewing angle ${curProj?(curProj.view??20):20}° — turns the sketch for <b>every pole in this project</b> (also in the PDF). <a href="#" id="vreset" style="color:var(--acc)">Reset</a>`;$('#vreset').onclick=e=>{e.preventDefault();turn(20-(curProj.view??20))}};
  $('#zm').onclick=()=>{cur.zoom=!cur.zoom;save();$('#diagram').innerHTML=diagram(cur);$('#zm').textContent=cur.zoom?'↕ Show full pole':'🔍 Zoom to attachments'};
  $('#vl').onclick=()=>turn(15);$('#vr').onclick=()=>turn(-15);lab();
- drawAtts();
+ drawAtts();drawNext();
 }
 
 function parseCoords(t){ // decimal (49.8951, -97.1384), with N/S/E/W letters, or degrees-minutes-seconds. Returns {lat,lng,west} or null
@@ -472,6 +475,129 @@ function parseCoords(t){ // decimal (49.8951, -97.1384), with N/S/E/W letters, o
  if(lat==null||lng==null||!isFinite(lat)||!isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return null;
  let west=false;if(lng>0&&!hemiE&&lat>41&&lat<84&&lng>50&&lng<141){lng=-lng;west=true} // all of Canada is west of Greenwich
  return {lat,lng,west}}
+
+// ---------- elevation along the line of poles ----------
+const parseS=t=>{t=String(t).trim().replace('−','-');if(!t)return null;const neg=t.startsWith('-');const v=parseH(t.replace(/^[-+]\s*/,''));return v==null?null:(neg?-v:v)};
+const fmtS=m=>m==null?'':(m<0?'−':'+')+fmtIn(Math.abs(m));
+function lineData(poles,ref){ // poles in line order → x (cumulative span), z (base vs first pole) and, with a reference pole, asl (above sea level)
+ let x=0,z=0;const out=[];
+ poles.forEach((p,i)=>{const o={p,x,z,link:null};out.push(o);const nx=poles[i+1];
+  if(nx){const ok=p.nextId===nx.id,sp=ok&&p.span!=null?p.span:null,dz=ok&&p.dz!=null?p.dz:null;o.link={sp,dz,ok,missing:sp==null||dz==null};x+=sp??30;z+=dz??0}});
+ const r=ref&&ref.pole&&ref.elev!=null?out.findIndex(o=>o.p.id===ref.pole):-1;
+ if(r>=0){const zr=out[r].z;out.forEach((o,i)=>{o.asl=ref.elev+o.z-zr;const a=Math.min(i,r),b=Math.max(i,r);o.apx=false;for(let k=a;k<b;k++){const l=out[k].link;if(!l||l.missing)o.apx=true}})}
+ return out}
+const hasLine=poles=>poles.some(p=>p.span!=null||p.dz!=null);
+const LINKT=['Strand - existing','Strand - proposed','Telecom - existing','Fibre - existing'];
+function profileSVG(poles,o={}){
+ const light=!!o.light,W=1000,H=o.h||540,bg=light?'#fff':'#0b1620',ink=light?'#222':'#cfd8df',sub=light?'#555':'#9db3c4',gnd=light?'#e9e1d2':'#1c2a35',gl=light?'#8a7a5c':'#7d93a5',bad=light?'#c0392b':'#ff7b72';
+ const L=lineData(poles,o.ref),px0=60,px1=W-60,padT=50,padB=96;
+ const maxA=p=>Math.max(0,...p.attachments.filter(a=>a.height!=null).map(a=>a.height)),topOf=p=>Math.max(p.poleHeight||0,maxA(p)+(p.poleHeight?0.3:1));
+ const total=Math.max(1,L[L.length-1].x);const zmin=Math.min(...L.map(o=>o.z)),zmax=Math.max(...L.map(o=>o.z+topOf(o.p)));
+ const sx=(px1-px0)/total,sy=(H-padT-padB)/Math.max(1,zmax-zmin),X=x=>px0+x*sx,Y=z=>H-padB-(z-zmin)*sy;
+ let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="Arial,Helvetica,sans-serif"><rect width="${W}" height="${H}" fill="${bg}"/>`;
+ const gpts=L.map(o=>`${X(o.x).toFixed(1)},${Y(o.z).toFixed(1)}`);
+ s+=`<polygon points="${px0-30},${Y(L[0].z)} ${gpts.join(' ')} ${px1+30},${Y(L[L.length-1].z)} ${px1+30},${H-padB+30} ${px0-30},${H-padB+30}" fill="${gnd}"/>`;
+ s+=`<polyline points="${px0-30},${Y(L[0].z)} ${gpts.join(' ')} ${px1+30},${Y(L[L.length-1].z)}" fill="none" stroke="${gl}" stroke-width="2.4"/>`;
+ const topA=(p,t)=>p.attachments.filter(a=>a.type===t&&a.height!=null).sort((u,v)=>v.height-u.height)[0];
+ for(let i=0;i<L.length-1;i++){const A=L[i],B=L[i+1];
+  for(const t of LINKT){const a=topA(A.p,t),b=topA(B.p,t);if(!a||!b)continue;const za=A.z+a.height,zb=B.z+b.height,c=light?shade(tcolor(t),.7):tcolor(t);
+   s+=`<line x1="${X(A.x).toFixed(1)}" y1="${Y(za).toFixed(1)}" x2="${X(B.x).toFixed(1)}" y2="${Y(zb).toFixed(1)}" stroke="${c}" stroke-width="2.4"${t==='Strand - proposed'?' stroke-dasharray="7 4"':''}/>`;
+   const mx=(X(A.x)+X(B.x))/2,my=(Y(za)+Y(zb))/2,d=zb-za;
+   s+=`<text x="${mx.toFixed(1)}" y="${(my-7).toFixed(1)}" font-size="13" font-weight="700" fill="${c}" stroke="${bg}" stroke-width="3" paint-order="stroke" text-anchor="middle">${esc(tinfo(t).s)} ${esc(fmtS(d))}</text>`}}
+ L.forEach((o,i)=>{const p=o.p,x=X(o.x),yb=Y(o.z),yt=Y(o.z+topOf(p));
+  s+=`<line x1="${x.toFixed(1)}" y1="${yb.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yt.toFixed(1)}" stroke="#a07a4b" stroke-width="7" stroke-linecap="round"/>`;
+  p.attachments.filter(a=>a.height!=null).forEach(a=>{const ya=Y(o.z+a.height);s+=`<line x1="${(x-9).toFixed(1)}" y1="${ya.toFixed(1)}" x2="${(x+9).toFixed(1)}" y2="${ya.toFixed(1)}" stroke="${light?shade(acol(a),.68):acol(a)}" stroke-width="4" stroke-linecap="round"/>`});
+  s+=`<text x="${x.toFixed(1)}" y="${(yt-9).toFixed(1)}" font-size="14" font-weight="700" fill="${ink}" text-anchor="middle">${esc((p.poleId||'?').slice(0,14))}</text>`;
+  s+=`<text x="${x.toFixed(1)}" y="${(H-padB+22).toFixed(1)}" font-size="12" fill="${sub}" text-anchor="middle">${o.asl!=null?esc(fmtIn(o.asl))+' above sea level'+(o.apx?' (approx.)':''):'base '+(i===0?'0 (reference)':esc(fmtS(o.z)))}</text>`;
+  if(o.link){const nx=L[i+1],mx=(X(o.x)+X(nx.x))/2,l=o.link;
+   s+=`<text x="${mx.toFixed(1)}" y="${(H-padB+44).toFixed(1)}" font-size="13" font-weight="700" fill="${l.sp==null?bad:ink}" text-anchor="middle">${l.sp==null?'span ?':'span '+esc(fmtIn(l.sp))}</text>`;
+   s+=`<text x="${mx.toFixed(1)}" y="${(H-padB+62).toFixed(1)}" font-size="13" font-weight="700" fill="${l.dz==null?bad:ink}" text-anchor="middle">${l.dz==null?'ground change ?':'ground '+esc(fmtS(l.dz))}</text>`;
+   if(!l.ok)s+=`<text x="${mx.toFixed(1)}" y="${(H-padB+80).toFixed(1)}" font-size="11" fill="${bad}" text-anchor="middle">not measured to this pole</text>`}});
+ s+=`<text x="12" y="${H-10}" font-size="11" fill="${sub}">Vertical scale exaggerated. ${L[0].asl!=null?'Base heights are above sea level from the reference pole.':'Heights are relative to the base of the first pole.'} Strand labels show the height difference between neighbouring poles.</text></svg>`;
+ return s}
+function nrcanAlt(lat,lon){ // ground elevation (m) from Natural Resources Canada's Elevation API; falls back to a script-tag call if the browser blocks the direct request
+ const base='https://geogratis.gc.ca/services/elevation/cdem/altitude?lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon);
+ return new Promise((res,rej)=>{
+  fetch(base).then(r=>r.ok?r.json():Promise.reject(new Error('http '+r.status))).then(j=>j&&j.altitude!=null?res(j.altitude):rej(new Error('no data here'))).catch(()=>{
+   const cb='nrc'+Math.random().toString(36).slice(2),sc=document.createElement('script');
+   const done=()=>{clearTimeout(to);delete window[cb];sc.remove()},to=setTimeout(()=>{done();rej(new Error('no answer — are you online?'))},9000);
+   window[cb]=j=>{done();j&&j.altitude!=null?res(j.altitude):rej(new Error('no data here'))};sc.onerror=()=>{done();rej(new Error('could not reach the service'))};
+   sc.src=base+'&callback='+cb;document.head.appendChild(sc)})})}
+function drawElev(sib){
+ const box=$('#elev');if(!box||!curProj)return;
+ const list=sib.map(x=>x.id===cur.id?cur:x),ref={pole:curProj.refPole,elev:curProj.refElev},L=lineData(list,ref),me=L.find(o=>o.p.id===cur.id);
+ const refP=list.find(x=>x.id===curProj.refPole),isRef=curProj.refPole===cur.id;
+ const setRef=async(pole,elev)=>{curProj.refPole=pole;curProj.refElev=elev;projRef[curProj.id]={pole,elev};await putOne('projects',curProj);drawNext()};
+ let h='';
+ if(isRef){
+  h=`<div style="font-size:14px;margin-bottom:8px"><b>This pole is the elevation reference.</b> Every other pole in the project is worked out from it, using the spans and ground changes.</div>
+   <label>Base of this pole — height above sea level</label><input class="ht" id="el_v" inputmode="${distoMode?'none':'text'}" value="${esc(fmtH(curProj.refElev))}" placeholder="${unit==='ft'?"748'":'228.4'}">
+   <button class="sm" id="elk" style="width:100%;margin-top:8px">Look up at this pole's GPS (NRCan)</button>
+   <div style="color:var(--mut);font-size:12px;margin:6px 0">A surveyed or design-drawing elevation is better than the lookup, which comes from a coarse map model.</div>
+   <button class="sm dng" id="elr" style="width:100%">Stop using this pole as the reference</button>`}
+ else if(refP){
+  h=`<div style="font-size:14px;margin-bottom:6px">Reference pole: <b>${esc(refP.poleId||'(no ID)')}</b> at ${esc(fmtIn(curProj.refElev))}</div>
+   ${me&&me.asl!=null?`<div style="font-size:18px;font-weight:700;margin:6px 0">This pole's base: ${esc(fmtIn(me.asl))} above sea level${me.apx?' (approx.)':''}</div>${me.apx?'<div style="color:var(--bad);font-size:13px">Some span or ground change between here and the reference is missing, so this is approximate.</div>':''}`:'<div style="color:var(--mut);font-size:13px">Not connected to the reference pole in the list yet.</div>'}
+   <button class="sm" id="elu" style="width:100%;margin-top:8px">Make this pole the reference instead</button>`}
+ else h=`<div style="color:var(--mut);font-size:13px;margin-bottom:8px">Choose one pole as the starting point and give its height above sea level. Every other pole is then worked out from it.</div><button class="sm pri" id="elu" style="width:100%">Use this pole as the elevation reference</button>`;
+ box.innerHTML=h;
+ if($('#el_v')){const el=$('#el_v');el.onchange=()=>setRef(cur.id,parseH(el.value));el.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el.blur()}}}
+ if($('#elu'))$('#elu').onclick=()=>setRef(cur.id,me&&me.asl!=null?me.asl:null);
+ if($('#elr'))$('#elr').onclick=()=>setRef(null,null);
+ if($('#elk'))$('#elk').onclick=async()=>{if(cur.lat==null){alert('This pole has no GPS position yet. Get GPS or type coordinates first.');return}
+  const b=$('#elk');b.textContent='Looking up…';try{const a=await nrcanAlt(cur.lat,cur.lng);await setRef(cur.id,a);toast('NRCan model: '+a.toFixed(1)+' m above sea level')}catch(e){b.textContent='Look up at this pole\'s GPS (NRCan)';alert('Could not look up the elevation: '+e.message+'\n\nType the elevation in the box instead.')}}}
+async function chkElev(full,ref,box){
+ const L=lineData(full,ref);const rows=[];
+ for(let i=0;i<L.length;i++){const o=L[i],p=o.p;box.textContent=`Looking up pole ${i+1} of ${L.length}…`;
+  if(p.lat==null){rows.push({o,a:null,why:'no GPS'});continue}
+  try{rows.push({o,a:await nrcanAlt(p.lat,p.lng)})}catch(e){rows.push({o,a:null,why:e.message})}}
+ const d=rows.filter(r=>r.a!=null&&r.o.asl!=null).map(r=>r.a-r.o.asl),mean=d.length?d.reduce((x,y)=>x+y,0)/d.length:null;
+ box.innerHTML=`<table style="width:100%;font-size:13px;margin:8px 0;border-collapse:collapse"><tr style="text-align:left;color:var(--mut)"><th>Pole</th><th>Measured chain</th><th>NRCan model</th><th>Difference</th></tr>${rows.map(r=>`<tr><td>${esc(r.o.p.poleId||'?')}</td><td>${r.o.asl!=null?esc(fmtIn(r.o.asl)):'—'}</td><td>${r.a!=null?esc(fmtIn(r.a)):esc(r.why||'—')}</td><td>${r.a!=null&&r.o.asl!=null?esc(fmtS(r.a-r.o.asl)):''}</td></tr>`).join('')}</table>
+  ${ref&&ref.pole?(mean!=null?`<div style="font-size:13px;color:var(--mut)">On average the NRCan model is ${esc(fmtS(mean))} from your measured chain. Individual differences show the model's coarseness and GPS error, not mistakes in your measurements.</div>${Math.abs(mean)>0.05?'<button id="avgset">Shift the reference by the average difference</button>':''}`:'<div style="color:var(--mut);font-size:13px">No poles with GPS to compare.</div>'):'<div style="color:var(--mut);font-size:13px">Set a reference pole first (on a pole page, under Elevation above sea level) to compare.</div>'}`;
+ if($('#avgset'))$('#avgset').onclick=async()=>{curProj.refElev=(curProj.refElev??0)+mean;projRef[curProj.id].elev=curProj.refElev;await putOne('projects',curProj);toast('Reference elevation updated');showProfile(full)}}
+async function drawNext(){
+ const box=$('#nxt');if(!box)return;
+ const sib=(await getAll('poles')).filter(x=>x.projectId===cur.projectId&&!x.archived).sort(poleOrd),i=sib.findIndex(x=>x.id===cur.id),nx=i>=0?sib[i+1]:null;
+ if(!$('#nxt'))return;
+ drawElev(sib);
+ if(!nx){box.innerHTML=`<div style="color:var(--mut);font-size:13px">${i<0?'':'This is the last pole in the project list, so there is nothing to measure to. '}On the project screen, drag the poles (⠿) into the order they run along the line.</div>`;return}
+ const stale=cur.nextId&&cur.nextId!==nx.id&&(cur.span!=null||cur.dz!=null);
+ box.innerHTML=`<div style="font-size:14px;margin-bottom:8px">Next pole in the list: <b>${esc(nx.poleId||'(no ID)')}</b></div>
+  ${stale?'<div style="color:var(--bad);font-size:13px;margin-bottom:8px">⚠ These numbers were measured to a different pole than the one that is next now. Re-measure, or put the poles back in order.</div>':''}
+  <label>Span to next pole (horizontal distance)</label><input class="ht" id="nx_sp" inputmode="${distoMode?'none':'text'}" value="${esc(fmtH(cur.span))}" placeholder="${unit==='ft'?"135'":'41.2'}">
+  <label>Ground change to next pole's base (+ higher, − lower)</label><input class="ht" id="nx_dz" inputmode="${distoMode?'none':'text'}" value="${esc(fmtS(cur.dz))}" placeholder="${unit==='ft'?"-4'-0":'-1.2'}">
+  <div class="dl" style="margin-top:10px">Or use one tilted Disto reading aimed at the base of the next pole:</div>
+  <div class="row"><div><label>Distance</label><input id="nx_sl" inputmode="text" placeholder="${unit==='ft'?"140'":'42.7'}"></div><div><label>Angle ° (− if downhill)</label><input id="nx_an" inputmode="text" placeholder="-3.5"></div></div>
+  <button class="sm" id="calc" style="width:100%;margin-top:8px">Work out span &amp; ground change</button>`;
+ const put=()=>{cur.nextId=nx.id;save()};
+ const wire=(el,fld,parse,doc)=>{let t;el.onchange=()=>{clearTimeout(t);cur[fld]=parse(el.value);put();drawNext();if(distoMode&&cur[fld]!=null){focusNextEmpty();toast('✓ '+doc+' = '+(fld==='dz'?fmtS(cur[fld]):fmtH(cur[fld])))}};
+  el.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el.blur()}};if(distoMode)el.oninput=()=>{clearTimeout(t);if(parse(el.value)!=null)t=setTimeout(()=>el.blur(),700)}};
+ wire($('#nx_sp'),'span',parseH,'Span');wire($('#nx_dz'),'dz',parseS,'Ground change');
+ $('#calc').onclick=()=>{const d=parseH($('#nx_sl').value),a=parseFloat(String($('#nx_an').value).replace(',','.').replace('−','-'));
+  if(d==null||isNaN(a)){alert('Enter the distance and the angle first.');return}
+  const r=a*Math.PI/180;cur.span=d*Math.cos(r);cur.dz=d*Math.sin(r);put();drawNext();toast(`Span ${fmtIn(cur.span)}, ground change ${fmtS(cur.dz)}`)};
+}
+async function showProfile(act){
+ const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');h.textContent='Line profile';
+ if(act.length<2){b.innerHTML='<div class="empty">Add at least two poles to this project, in line order.</div><button id="xc">Close</button>';$('#xc').onclick=()=>m.classList.remove('on');return}
+ const full=await Promise.all(act.map(p=>getPole(p.id)));
+ b.innerHTML=`<div style="overflow:auto;border-radius:8px">${profileSVG(full,{h:520,ref:projRef[curProj.id]}).replace('width="1000"','style="min-width:760px;width:100%;height:auto"').replace('height="520"','')}</div><div style="color:var(--mut);font-size:12px;margin:8px 0">Scroll sideways if it is wide. The same page comes after the cover in the project PDF.</div><button id="chk">Compare with NRCan elevation data</button><div id="chkres"></div><button id="xc">Close</button>`;
+ $('#xc').onclick=()=>m.classList.remove('on');$('#chk').onclick=()=>chkElev(full,projRef[curProj.id],$('#chkres'))}
+async function pgProfile(proj,poles){
+ const ref=projRef[proj.id],L=lineData(poles,ref),out=[];let idx=0;const asl=L[0].asl!=null;
+ const img=await svgImg(profileSVG(poles,{light:true,h:520,ref}));
+ do{const {c,g}=mkPage(),first=out.length===0;let y=PM;
+  if(first){g.fillStyle='#111';g.font='bold 52px Arial';g.fillText('Line profile',PM,y);y+=70;g.fillStyle='#555';g.font='26px Arial';g.fillText(proj.name,PM,y);y+=48;
+   const wd=PW-2*PM;g.drawImage(img,PM,y,wd,wd*520/1000);y+=wd*520/1000+30}
+  const cw=asl?[60,230,200,220,230]:[70,330,230,230,230],x0=PM;g.fillStyle='#e8e8e8';g.fillRect(x0,y,PW-2*PM,44);g.fillStyle='#111';g.font='bold 24px Arial';let cx=x0+10;['#','Pole','Span to next','Ground change',asl?'Above sea level':'Base vs first'].forEach((t,i)=>{g.fillText(t,cx,y+9);cx+=cw[i]});y+=46;
+  const per=first?17:34;
+  for(let k=0;k<per&&idx<L.length;k++,idx++){const o=L[idx],l=o.link;cx=x0+10;g.font='24px Arial';g.fillStyle='#111';
+   g.fillText(String(idx+1),cx,y+8);cx+=cw[0];fit(g,o.p.poleId||'(no ID)',cw[1]-14,24,'bold');g.fillText(o.p.poleId||'(no ID)',cx,y+8);cx+=cw[1];g.font='24px Arial';
+   g.fillStyle=l&&l.sp==null?'#c0392b':'#111';g.fillText(l?(l.sp!=null?fmtIn(l.sp):'?'):'—',cx,y+8);cx+=cw[2];
+   g.fillStyle=l&&l.dz==null?'#c0392b':'#111';g.fillText(l?(l.dz!=null?fmtS(l.dz):'?'):'—',cx,y+8);cx+=cw[3];
+   g.fillStyle='#111';g.fillText(asl?fmtIn(o.asl)+(o.apx?' ≈':''):(idx===0?'0 (ref)':fmtS(o.z)),cx,y+8);y+=42;g.strokeStyle='#ccc';g.lineWidth=1;g.beginPath();g.moveTo(x0,y);g.lineTo(PW-PM,y);g.stroke()}
+  out.push(c)}while(idx<L.length);
+ return out}
 function drawAtts(focusId){
  const box=$('#atts');if(!box)return;
  const list=[...cur.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
@@ -624,12 +750,14 @@ $('#vdel').onclick=()=>{if(!confirm('Delete this photo (and its arrows)?'))retur
 
 // ---------- CSV ----------
 function csv(poles){
- const rows=[['Project','Pole ID','Utility','Lat','Lng','GPS accuracy (m)','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Primaries on arm','Owner/Note','Height (m)','Height (ft-in)','Anchor distance from pole base (m)','Photo #','Pole notes']];
+ const rows=[['Project','Pole ID','Utility','Lat','Lng','GPS accuracy (m)','Date','Pole height (m)','Pole height','Class','Attachment','Direction(s)','Primaries on arm','Owner/Note','Height (m)','Height (ft-in)','Anchor distance from pole base (m)','Span to next pole (m)','Ground change to next pole (m)','Base elevation vs first pole (m)','Base elevation above sea level (m)','Photo #','Pole notes']];
  const ftin=m=>{const t=Math.round(m/M_PER_IN);return Math.floor(t/12)+"'-"+(t%12)+'"'};
+ const zmap=new Map(),amap=new Map();{const by={};poles.filter(p=>!p.archived).forEach(p=>(by[p.projectId]=by[p.projectId]||[]).push(p));for(const k in by){const grp=by[k].sort(poleOrd);if(grp.length>1&&hasLine(grp))lineData(grp,projRef[k]).forEach(o=>{zmap.set(o.p.id,o.z);if(o.asl!=null)amap.set(o.p.id,o.asl)})}}
+ const zOf=p=>zmap.has(p.id)?zmap.get(p.id).toFixed(3):'',aslOf=p=>amap.has(p.id)?amap.get(p.id).toFixed(3):'';
  poles.forEach(p=>{const base=[projName[p.projectId]||'',p.poleId,p.utility,p.lat??'',p.lng??'',p.acc!=null?Math.round(p.acc):'',p.date,p.poleHeight!=null?p.poleHeight.toFixed(3):'',p.poleHeight!=null?ftin(p.poleHeight):'',p.poleClass];
   const at=[...p.attachments].sort((a,b)=>(b.height??-1)-(a.height??-1));
-  if(!at.length)rows.push([...base,'','','','','','','','',p.notes]);
-  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirsOnly(a),a.type==='Crossarm'?(a.n||3):'',a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',a.type==='Guy / anchor'&&a.dist!=null?a.dist.toFixed(3):'',ph>=0?ph+1:'',p.notes])})});
+  if(!at.length)rows.push([...base,'','','','','','','','','','','','',p.notes]);
+  at.forEach(a=>{const ph=p.photos.findIndex(x=>x.id===a.photoId);rows.push([...base,a.type,dirsOnly(a),a.type==='Crossarm'?(a.n||3):'',a.owner,a.height!=null?a.height.toFixed(3):'',a.height!=null?ftin(a.height):'',a.type==='Guy / anchor'&&a.dist!=null?a.dist.toFixed(3):'',p.span!=null?p.span.toFixed(3):'',p.dz!=null?p.dz.toFixed(3):'',zOf(p),aslOf(p),ph>=0?ph+1:'',p.notes])})});
  return '﻿'+rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
 }
 function dl(file){const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove()}
@@ -784,6 +912,7 @@ function buildPdf(pg){
 async function makePdf(poles,opts={}){
  const pgs=[];
  if(opts.project)for(const c of await pgCovers(opts.project,poles))pgs.push(await pgFromCanvas(c));
+ if(opts.project&&poles.length>1&&hasLine(poles)){try{for(const c of await pgProfile(opts.project,poles))pgs.push(await pgFromCanvas(c))}catch(e){(opts.skipped||[]).push('Line profile page: '+e.message)}}
  for(let k=0;k<poles.length;k++){const p=poles[k];ensureColors(p);
   if(opts.onProgress){opts.onProgress(k+1,poles.length,p);await tick()}
   pgs.push(await pgFromCanvas(await pgSummary(p)));
