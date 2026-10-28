@@ -587,7 +587,10 @@ async function showProfile(act){
  const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.add('on');h.textContent='Line profile';
  if(act.length<2){b.innerHTML='<div class="empty">Add at least two poles to this project, in line order.</div><button id="xc">Close</button>';$('#xc').onclick=()=>m.classList.remove('on');return}
  const full=await Promise.all(act.map(p=>getPole(p.id)));
- b.innerHTML=`<div style="overflow:auto;border-radius:8px">${profileSVG(full,{h:560,w:Math.max(1000,190*full.length),ref:projRef[curProj.id]}).replace(/ width="\d+" height="\d+"/,' style="min-width:'+Math.min(2000,Math.max(760,190*full.length))+'px;width:100%;height:auto"')}</div><div style="color:var(--mut);font-size:12px;margin:8px 0">Scroll sideways if it is wide. The same page comes after the cover in the project PDF.</div><button id="chk">Compare with NRCan elevation data</button><div id="chkres"></div><button id="xc">Close</button>`;
+ b.innerHTML=`<div style="overflow:auto;border-radius:8px">${profileSVG(full,{h:560,w:Math.max(1000,190*full.length),ref:projRef[curProj.id]}).replace(/ width="\d+" height="\d+"/,' style="min-width:'+Math.min(2000,Math.max(760,190*full.length))+'px;width:100%;height:auto"')}</div><div style="color:var(--mut);font-size:12px;margin:8px 0">Scroll sideways if it is wide. The same page comes after the cover in the project PDF.</div><button class="pri" id="psv">Save / share this sketch as a PDF</button><button id="chk">Compare with NRCan elevation data</button><div id="chkres"></div><button id="xc">Close</button>`;
+ $('#psv').onclick=async()=>{const bt=$('#psv');bt.textContent='Building…';try{PDFQ.max=0;PDFQ.q=.86;const pgs=[];for(const c of await pgProfile(curProj,full))pgs.push(await pgFromCanvas(c));
+   const f=new File([buildPdf(pgs)],safe(curProj.name)+'_line_profile.pdf',{type:'application/pdf'});
+   if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:curProj.name})}catch(e){}}else dl(f)}catch(e){alert('Could not build the sketch PDF: '+e.message)}bt.textContent='Save / share this sketch as a PDF'};
  $('#xc').onclick=()=>m.classList.remove('on');$('#chk').onclick=()=>chkElev(full,projRef[curProj.id],$('#chkres'))}
 async function pgProfile(proj,poles){
  const ref=projRef[proj.id],Lall=lineData(poles,ref),out=[],n=poles.length,asl=Lall[0].asl!=null,CH=6;
