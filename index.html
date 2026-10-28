@@ -24,6 +24,7 @@ label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}
 input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;min-height:46px}
 .row{display:flex;gap:10px}.row>*{flex:1}
 .pole-item{display:flex;align-items:center;gap:12px;cursor:pointer}
+.grip{font-size:24px;line-height:1;color:var(--mut);padding:8px 6px;margin:-8px -2px -8px -8px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}.pole-item.drag{outline:2px solid var(--acc);background:var(--card2,#1b2a37)}body.viewer .grip{display:none}
 .pole-item .t{flex:1}.pole-item small{color:var(--mut)}
 .badge{font-size:12px;background:#0f1d2a;border:1px solid var(--line);border-radius:20px;padding:2px 9px;color:var(--mut)}
 .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -78,9 +79,13 @@ input,select,textarea{width:100%;background:#0f1d2a;color:var(--ink);border:1px 
 .tysel{min-height:36px;padding:2px 6px;font-weight:700;font-size:15px;background:transparent;border:1px solid var(--line);width:100%}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;max-width:90vw;background:rgba(0,0,0,.88);color:#fff;border:1px solid var(--acc);padding:10px 16px;border-radius:22px;z-index:40;display:none;font-weight:600;text-align:center}
 .ht:focus{outline:3px solid var(--acc)}
+body.viewer #vbadge{display:block}#vbadge{display:none;background:#1d4d6b;color:#fff;text-align:center;font-size:13px;padding:5px 10px}
+body.viewer #newp,body.viewer #new,body.viewer #impb,body.viewer #xfer,body.viewer #selb,body.viewer #ren,body.viewer #arcp,body.viewer #delp,body.viewer #gps,body.viewer #dm,body.viewer #quick,body.viewer .del,body.viewer #vdel,body.viewer #cam,body.viewer #gal,body.viewer label.btn,body.viewer #vpick,body.viewer #bar .pri#new{display:none!important}
+body.viewer #main input,body.viewer #main select,body.viewer #main textarea,body.viewer .dbtn,body.viewer .dot,body.viewer .nb,body.viewer .tysel{pointer-events:none}
 </style></head>
 <body>
 <header><button id="back" class="sm" style="display:none">‹ Back</button><h1 id="title">Pole Survey</h1><button id="cloud" class="sm" title="Live sync">☁</button><button id="unit" class="sm">ft</button></header>
+<div id="vbadge">👁 View only — you can look at everything but not change it</div>
 <main id="main"></main>
 <div id="bar" class="sticky" style="display:none"></div>
 
@@ -138,7 +143,7 @@ const st=(n,m)=>db.transaction(n,m).objectStore(n);
 const getAll=n=>new Promise(r=>{const q=st(n,'readonly').getAll();q.onsuccess=()=>r(q.result)});
 const getOne=(n,id)=>new Promise(r=>{const q=st(n,'readonly').get(id);q.onsuccess=()=>r(q.result)});
 const stripP=p=>({...p,photos:p.photos.map(ph=>ph.buf?{id:ph.id,buf:ph.buf,type:ph.type||'image/jpeg'}:{...ph})});
-const putOne=(n,o,keep)=>new Promise(r=>{if(!keep)o.updated=Date.now();if(n==='poles'&&!SY.applying)stampPole(o);const q=st(n,'readwrite').put(n==='poles'?stripP(o):o);q.onsuccess=()=>{if(!SY.applying)syDirty(n,o.id);r()}});
+const putOne=(n,o,keep)=>new Promise(r=>{if(!SY.applying&&isViewer())return r();if(!keep)o.updated=Date.now();if(n==='poles'&&!SY.applying)stampPole(o);const q=st(n,'readwrite').put(n==='poles'?stripP(o):o);q.onsuccess=()=>{if(!SY.applying)syDirty(n,o.id);r()}});
 async function rescueViaCanvas(blob){ // if bytes can't be read but the picture still displays, re-draw it
  const url=URL.createObjectURL(blob);
  try{const img=new Image();img.src=url;await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);
@@ -157,7 +162,7 @@ async function hydrate(p){ // rebuild in-memory Blobs; convert old Blob-format p
  return p;
 }
 const getPole=async id=>{const p=await getOne('poles',id);return p?hydrate(p):p};
-const delOne=(n,id)=>new Promise(r=>{const q=st(n,'readwrite').delete(id);q.onsuccess=()=>{if(!SY.applying)syTomb(n,id);r()}});
+const delOne=(n,id)=>new Promise(r=>{if(!SY.applying&&isViewer())return r();const q=st(n,'readwrite').delete(id);q.onsuccess=()=>{if(!SY.applying)syTomb(n,id);r()}});
 async function migrate(){ // poles saved before projects existed go into one project
  const orphans=(await getAll('poles')).filter(p=>!p.projectId);if(!orphans.length)return;
  const pr={id:uid(),name:'Unsorted poles',notes:'',archived:false,created:Date.now(),updated:Date.now()};
@@ -342,16 +347,28 @@ async function showProjects(){
 
 // ---------- screen 2: one project's poles ----------
 let lTab='active',lSelMode=false,lSet=new Set();
+const poleOrd=(a,b)=>{const ha=a.order!=null,hb=b.order!=null;if(ha&&hb)return a.order-b.order;if(ha!==hb)return ha?1:-1;return b.updated-a.updated}; // your own order first-class; poles not yet placed show newest-first at the top
 async function showProject(){
  view='project';cur=null;setHeader(curProj.name,true);projName[curProj.id]=curProj.name;projView[curProj.id]=curProj.view;
- const all=(await getAll('poles')).filter(p=>p.projectId===curProj.id).sort((a,b)=>b.updated-a.updated);
+ const all=(await getAll('poles')).filter(p=>p.projectId===curProj.id).sort(poleOrd);
  const act=all.filter(p=>!p.archived),arc=all.filter(p=>p.archived),ps=lTab==='active'?act:arc;
  lSet=new Set([...lSet].filter(id=>ps.some(p=>p.id===id)));
  const emptyMsg=lTab==='active'?'No poles in this project yet.<br>Tap “New pole” to start.':'Nothing archived.<br>Archive finished poles to keep this list short.';
  main.innerHTML=`<div class="tabs"><button class="tab ${lTab==='active'?'on':''}" data-t="active">Poles (${act.length})</button><button class="tab ${lTab==='archived'?'on':''}" data-t="archived">Archived (${arc.length})</button></div>`+
   `<div class="row" style="margin-bottom:12px">${ps.length?`<button id="selb" class="sm">${lSelMode?'Cancel':'Select'}</button>`:''}${lSelMode?'<button id="alls" class="sm">Select all</button>':'<button id="ren" class="sm">✎ Rename project</button>'}</div>`+
-  (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:''}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
+  (ps.length?ps.map(p=>`<div class="card pole-item${lSet.has(p.id)?' sel':''}" data-id="${p.id}">${lSelMode?`<div class="chk">${lSet.has(p.id)?'✓':''}</div>`:'<div class="grip" title="Drag to reorder">⠿</div>'}<div class="t"><b>${esc(p.poleId||'(no ID)')}</b><br><small>${esc(p.utility)} · ${new Date(p.updated).toLocaleDateString()}</small></div><span class="badge">${p.photos.length} 📷</span><span class="badge">${p.attachments.length} att</span></div>`).join(''):`<div class="empty">${emptyMsg}</div>`);
  main.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{lTab=t.dataset.t;lSelMode=false;lSet.clear();showProject()});
+ main.querySelectorAll('.grip').forEach(g=>{g.onclick=e=>e.stopPropagation();g.onpointerdown=e=>{
+  e.preventDefault();e.stopPropagation();const item=g.closest('.pole-item'),items=()=>[...main.querySelectorAll('.pole-item')];
+  item.classList.add('drag');try{g.setPointerCapture(e.pointerId)}catch(_){}
+  const mv=ev=>{const y=ev.clientY;if(y<90)window.scrollBy(0,-14);else if(y>innerHeight-110)window.scrollBy(0,14);
+   const t=items().find(x=>{if(x===item)return false;const r=x.getBoundingClientRect();return y>r.top&&y<r.bottom});
+   if(t){const r=t.getBoundingClientRect(),mid=r.top+r.height/2,below=!!(item.compareDocumentPosition(t)&Node.DOCUMENT_POSITION_FOLLOWING);if(below&&y>mid)item.before(t);else if(!below&&y<mid)item.after(t)}}; // the neighbour hops over the item, so the dragged row stays put in the page and keeps hold of your finger
+  const up=async()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);item.classList.remove('drag');
+   const ids=items().map(x=>x.dataset.id);
+   for(let i=0;i<ids.length;i++){const p=await getOne('poles',ids[i]);if(p&&p.order!==i){p.order=i;await putOne('poles',p,true)}}
+   toast('Order saved')};
+  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up)}});
  main.querySelectorAll('.pole-item').forEach(e=>e.onclick=async()=>{if(lSelMode){lSet.has(e.dataset.id)?lSet.delete(e.dataset.id):lSet.add(e.dataset.id);showProject()}else openPole(await getPole(e.dataset.id))});
  if($('#selb'))$('#selb').onclick=()=>{lSelMode=!lSelMode;lSet.clear();showProject()};
  if($('#alls'))$('#alls').onclick=()=>{lSet=lSet.size===ps.length?new Set():new Set(ps.map(p=>p.id));showProject()};
@@ -367,7 +384,7 @@ async function showProject(){
   $('#xfer').onclick=()=>sendProject();
   $('#new').onclick=async()=>{const p={id:uid(),projectId:curProj.id,poleId:'',utility:localStorage.getItem('lastUtil')||UTILS[0],lat:null,lng:null,date:new Date().toISOString().slice(0,10),notes:'',poleHeight:null,poleClass:'',photos:[],attachments:[],archived:false,created:Date.now(),updated:Date.now()};await putOne('poles',p);lTab='active';openPole(p)};
   $('#expj').onclick=()=>{if(!act.length){alert('Add at least one pole to this project first.');return}
-   exportDialog({base:safe(curProj.name),poles:[...act].sort((a,b)=>(a.created||a.updated)-(b.created||b.updated)),project:curProj})};
+   exportDialog({base:safe(curProj.name),poles:[...act],project:curProj})};
  }
 }
 
@@ -542,6 +559,7 @@ function pickType(k){
 function selectMarker(id){V.sel=id;if(id!=='new')V.pend=null;drawMarks();setPanel();
  const a=selAtt(),m=id==='new'?V.pend:a;if(m)ensureVisible(m.x,m.y)}
 function tapAt(cx,cy){
+ if(isViewer())return;
  const {u,v}=toImg(cx,cy);if(u<0||u>1||v<0||v>1)return;
  V.pend={x:u,y:v,ang:V.pend?V.pend.ang:45};V.sel='new';drawMarks();setPanel();ensureVisible(u,v);
 }
@@ -852,10 +870,11 @@ function stampPole(p){const now=Date.now();p.fu=p.fu||{};p.fh=p.fh||{};
  for(const k of Object.keys(p)){if(SKIP.has(k))continue;const h=JSON.stringify(p[k]);if(p.fh[k]!==h){p.fh[k]=h;p.fu[k]=now}}
  for(const a of p.attachments){const {u,h,...rest}=a;const hh=JSON.stringify(rest);if(a.h!==hh){a.h=hh;a.u=now}}}
 function syCfg(){return lsj('sy_cfg',null)}
+function isViewer(){const c=syCfg();return !!(c&&c.viewer)}
 function syDirty(n,id){if(!syCfg())return;const d=lsj('sy_dirty',{});d[id]=n;lss('sy_dirty',d);syKick()}
 function syTomb(n,id){if(!syCfg())return;const t=lsj('sy_tomb',{});t[id]=n;lss('sy_tomb',t);const d=lsj('sy_dirty',{});delete d[id];lss('sy_dirty',d);syKick()}
-let kickT;function syKick(){clearTimeout(kickT);kickT=setTimeout(syncNow,1500)}
-function syStatus(state,msg){SY.state=state;SY.msg=msg||'';const b=$('#cloud');if(!b)return;b.textContent={off:'☁',ok:'☁✓',sync:'☁↻',err:'☁⚠'}[state]||'☁'}
+let kickT;function syKick(){if(isViewer())return;clearTimeout(kickT);kickT=setTimeout(syncNow,1500)}
+function syStatus(state,msg){SY.state=state;SY.msg=msg||'';document.body.classList.toggle('viewer',isViewer());const b=$('#cloud');if(!b)return;b.textContent=({off:'☁',ok:'☁✓',sync:'☁↻',err:'☁⚠'}[state]||'☁').replace('☁',isViewer()?'👁':'☁')}
 async function syToken(){const c=syCfg();if(!c)throw new Error('not set up');
  if(c.token&&c.exp-Date.now()>60000)return c;
  const r=await fetch(c.url+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{apikey:c.key,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:c.refresh})});
@@ -863,10 +882,11 @@ async function syToken(){const c=syCfg();if(!c)throw new Error('not set up');
  const j=await r.json();c.token=j.access_token;c.refresh=j.refresh_token;c.exp=Date.now()+j.expires_in*1000;lss('sy_cfg',c);return c}
 async function sb(path,o={}){const c=await syToken();const r=await fetch(c.url+path,{...o,headers:{apikey:c.key,Authorization:'Bearer '+c.token,...(o.headers||{})}});
  if(!r.ok){const t=await r.text().catch(()=>'');throw new Error(r.status+' '+t.slice(0,120))}return r}
-async function syLogin(url,key,email,pw){url=url.trim().replace(/\/+$/,'');
+async function syLogin(url,key,email,pw,viewer){url=url.trim().replace(/\/+$/,'');
  const r=await fetch(url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:key.trim(),'Content-Type':'application/json'},body:JSON.stringify({email:email.trim(),password:pw})});
  if(!r.ok)throw new Error('Sign-in failed — check the URL, key, email and password');
- const j=await r.json();lss('sy_cfg',{url,key:key.trim(),email:email.trim(),token:j.access_token,refresh:j.refresh_token,exp:Date.now()+j.expires_in*1000});
+ const j=await r.json();lss('sy_cfg',{url,key:key.trim(),email:email.trim(),viewer:!!viewer,token:j.access_token,refresh:j.refresh_token,exp:Date.now()+j.expires_in*1000});
+ if(viewer){lss('sy_dirty',{});return}
  // first time on this device: everything local gets pushed once
  const d=lsj('sy_dirty',{});for(const n of ['poles','projects'])for(const x of await getAll(n))d[x.id]=n;lss('sy_dirty',d)}
 const docOf=p=>({...p,blob:undefined,photos:p.photos.map(x=>({id:x.id,type:x.type||'image/jpeg'}))});
@@ -887,6 +907,7 @@ function mergePole(L,R){
  return out}
 function syBusy(){const e=document.activeElement;return SY.adding||(e&&/INPUT|TEXTAREA|SELECT/.test(e.tagName))||document.querySelector('.modal.on')}
 async function syPush(){
+ if(isViewer())return;
  const dirty=lsj('sy_dirty',{}),up=new Set(lsj('sy_up',[]));
  for(const id of Object.keys(dirty)){const n=dirty[id];
   if(n==='projects'){const pr=await getOne('projects',id);if(pr)await sb('/rest/v1/docs',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{id,kind:'project',data:pr,updated:Date.now(),deleted:false}])});}
@@ -940,16 +961,17 @@ function syncDialog(){const m=$('#exp'),h=$('#exph'),b=$('#expb');m.classList.ad
   b.innerHTML=`<div style="font-size:14px">Signed in as <b>${esc(c.email)}</b></div><div style="color:var(--mut);font-size:13px;margin:8px 0">${SY.state==='err'?'⚠ '+esc(SY.msg):SY.state==='sync'?'Syncing…':'✓ Up to date'}${dn?` — ${dn} change${dn>1?'s':''} waiting to upload`:''}<br>Last sync: ${lss&&lsj('sy_last',0)?new Date(lsj('sy_last',0)).toLocaleTimeString():'never'}<br>Changes show up on your other device within a few seconds. Without signal the app keeps working and catches up later.</div>
   <button class="pri" id="sn">Sync now</button><button id="so" class="dng">Sign out of sync</button><button id="xc">Close</button>`;
   $('#sn').onclick=async()=>{await syncNow();syncDialog()};
-  $('#so').onclick=()=>{if(confirm('Stop syncing on this device? Your data stays here and in the cloud.')){['sy_cfg','sy_dirty','sy_tomb','sy_rev','sy_up'].forEach(k=>localStorage.removeItem(k));syStatus('off');m.classList.remove('on')}};
+  $('#so').onclick=()=>{if(confirm('Stop syncing on this device? Your data stays here and in the cloud.')){['sy_cfg','sy_dirty','sy_tomb','sy_rev','sy_up'].forEach(k=>localStorage.removeItem(k));document.body.classList.remove('viewer');syStatus('off');m.classList.remove('on')}};
  }else{
   b.innerHTML=`<div style="color:var(--mut);font-size:13px;margin-bottom:8px">Enter the details from your Supabase project (Project Settings → API) and the user you created. Same details on every device.</div>
   <label>Project URL</label><input id="sy_u" placeholder="https://xxxx.supabase.co" autocapitalize="off" autocorrect="off">
   <label>Anon (public) key</label><input id="sy_k" placeholder="eyJ…" autocapitalize="off" autocorrect="off">
   <label>Email</label><input id="sy_e" type="email" autocapitalize="off">
   <label>Password</label><input id="sy_p" type="password">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="sy_v" style="width:auto"> View only (for the designer — nothing can be changed)</label>
   <div id="sy_m" style="color:var(--bad);font-size:13px"></div>
   <button class="pri" id="sy_go">Sign in &amp; start syncing</button><button id="xc">Close</button>`;
-  $('#sy_go').onclick=async()=>{try{$('#sy_m').textContent='';$('#sy_go').disabled=true;await syLogin($('#sy_u').value,$('#sy_k').value,$('#sy_e').value,$('#sy_p').value);m.classList.remove('on');toast('Sync on — uploading…');syncNow()}catch(e){$('#sy_m').textContent=e.message;$('#sy_go').disabled=false}}}
+  $('#sy_go').onclick=async()=>{try{$('#sy_m').textContent='';$('#sy_go').disabled=true;await syLogin($('#sy_u').value,$('#sy_k').value,$('#sy_e').value,$('#sy_p').value,$('#sy_v').checked);syStatus('sync');m.classList.remove('on');toast(isViewer()?'Viewing live — read only':'Sync on — uploading…');syncNow()}catch(e){$('#sy_m').textContent=e.message;$('#sy_go').disabled=false}}}
  $('#xc').onclick=()=>m.classList.remove('on')}
 $('#cloud').onclick=syncDialog;
 
